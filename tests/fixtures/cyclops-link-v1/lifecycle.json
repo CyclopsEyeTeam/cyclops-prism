@@ -1,0 +1,337 @@
+{
+  "description": "Writer behaviour as timelines of host-semantic events. A presence translates each event from her own host evidence; Link only ever sees these finite events. \"expect\" lists published records (the fields given must match); \"forbid\" lists what must never happen.",
+  "scenarios": [
+    {
+      "name": "off-by-default",
+      "link": "off",
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        },
+        {
+          "t": 1,
+          "event": "turn.start"
+        },
+        {
+          "t": 9,
+          "event": "session.end"
+        }
+      ],
+      "expect": [],
+      "forbid": [
+        "create LINK_DIR",
+        "create .salt",
+        "write any file",
+        "stat or read any file in LINK_DIR",
+        "start a heartbeat or poll"
+      ]
+    },
+    {
+      "name": "heartbeat-while-quiet",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        }
+      ],
+      "expect": [
+        {
+          "by_t": 0.5,
+          "record": {
+            "state": "idle",
+            "ended": false
+          }
+        },
+        {
+          "by_t": 5.0,
+          "record": {
+            "state": "idle"
+          },
+          "note": "a refresh at most 5 s after the last write"
+        },
+        {
+          "by_t": 10.0,
+          "record": {
+            "state": "idle"
+          }
+        },
+        {
+          "at_t": 120.0,
+          "record": {
+            "state": "idle",
+            "ended": false
+          }
+        }
+      ],
+      "forbid": [
+        "publish ended:true from inactivity",
+        "publish waiting from inactivity"
+      ]
+    },
+    {
+      "name": "immediate-state-change",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        },
+        {
+          "t": 2.0,
+          "event": "turn.start"
+        },
+        {
+          "t": 2.2,
+          "event": "tool.start",
+          "peer_reach": null
+        },
+        {
+          "t": 9.0,
+          "event": "tool.end"
+        },
+        {
+          "t": 9.5,
+          "event": "turn.end"
+        }
+      ],
+      "expect": [
+        {
+          "by_t": 2.5,
+          "record": {
+            "state": "working"
+          }
+        },
+        {
+          "by_t": 2.7,
+          "record": {
+            "state": "tool",
+            "tools": 1
+          }
+        },
+        {
+          "by_t": 9.5,
+          "record": {
+            "tools": 0
+          }
+        },
+        {
+          "by_t": 10.0,
+          "record": {
+            "state": "stopped",
+            "tools": 0
+          }
+        }
+      ],
+      "note": "hosts without a tool-start event never publish tool and keep tools at 0 (SPEC 5.4)"
+    },
+    {
+      "name": "long-tool-is-not-waiting",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "turn.start"
+        },
+        {
+          "t": 1,
+          "event": "tool.start"
+        },
+        {
+          "t": 600,
+          "event": "tool.end"
+        }
+      ],
+      "expect": [
+        {
+          "at_t": 300,
+          "record": {
+            "state": "tool",
+            "tools": 1
+          }
+        }
+      ],
+      "forbid": [
+        "publish waiting at any time"
+      ]
+    },
+    {
+      "name": "approval-is-waiting",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "turn.start"
+        },
+        {
+          "t": 1,
+          "event": "tool.start"
+        },
+        {
+          "t": 1.1,
+          "event": "approval.request"
+        },
+        {
+          "t": 4,
+          "event": "approval.resolved"
+        }
+      ],
+      "expect": [
+        {
+          "by_t": 1.6,
+          "record": {
+            "state": "waiting"
+          }
+        },
+        {
+          "by_t": 4.5,
+          "record": {
+            "state": "tool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "reaching-follows-the-real-call",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "turn.start"
+        },
+        {
+          "t": 1,
+          "event": "tool.start",
+          "peer_reach": "keeper"
+        },
+        {
+          "t": 6,
+          "event": "tool.end"
+        }
+      ],
+      "expect": [
+        {
+          "by_t": 1.5,
+          "record": {
+            "reaching": [
+              "keeper"
+            ],
+            "state": "tool"
+          }
+        },
+        {
+          "by_t": 6.5,
+          "record": {
+            "reaching": []
+          }
+        }
+      ],
+      "note": "peer_reach is produced by the presence's own semantic adapter; the Link layer never sees the command"
+    },
+    {
+      "name": "session-end",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        },
+        {
+          "t": 30,
+          "event": "session.end"
+        }
+      ],
+      "expect": [
+        {
+          "by_t": 30.5,
+          "record": {
+            "state": "ended",
+            "ended": true
+          }
+        },
+        {
+          "after_t": 90,
+          "file": "absent (SHOULD, if the writer still runs)"
+        }
+      ]
+    },
+    {
+      "name": "link-turned-off",
+      "link": "on",
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        },
+        {
+          "t": 10,
+          "event": "link.off"
+        },
+        {
+          "t": 20,
+          "event": "turn.start"
+        }
+      ],
+      "expect": [
+        {
+          "by_t": 10.5,
+          "record": {
+            "state": "ended",
+            "ended": true
+          }
+        }
+      ],
+      "forbid": [
+        "any write after t=10.5",
+        "any read or stat of LINK_DIR after t=10.5"
+      ]
+    },
+    {
+      "name": "unsafe-directory",
+      "link": "on",
+      "setup": {
+        "LINK_DIR": {
+          "type": "dir",
+          "mode": "0777"
+        }
+      },
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        }
+      ],
+      "expect": [],
+      "forbid": [
+        "chmod/chown/delete LINK_DIR",
+        "write any file",
+        "read any peer file",
+        "disturb the host session"
+      ]
+    },
+    {
+      "name": "write-failure-is-silent",
+      "link": "on",
+      "setup": {
+        "LINK_DIR": "becomes read-only after the first write"
+      },
+      "events": [
+        {
+          "t": 0,
+          "event": "session.start"
+        },
+        {
+          "t": 1,
+          "event": "turn.start"
+        }
+      ],
+      "expect": [],
+      "forbid": [
+        "crash, block or slow the host",
+        "retry more than 3 consecutive times",
+        "retry in a tight loop"
+      ]
+    }
+  ]
+}

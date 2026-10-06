@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import sys
 import unittest
 
@@ -11,6 +12,12 @@ SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 import terminal
+
+
+# The CLI reads the live feed of whatever session ran last on this machine: tests run in an empty state home
+_ISOLATED = dict(os.environ, XDG_STATE_HOME=tempfile.mkdtemp(prefix="prism-test-state-"),
+                 XDG_CONFIG_HOME=tempfile.mkdtemp(prefix="prism-test-config-"))
+_ISOLATED.pop("PRISM_LINK", None)
 
 
 class TestTerminalModes(unittest.TestCase):
@@ -46,32 +53,32 @@ class TestTerminalModes(unittest.TestCase):
 
     def test_cli_once_execution(self):
         cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "--once", "--no-color", "--plain"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("Prism - ready", proc.stdout)
 
     def test_cli_demo_state_approval(self):
         cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "--once", "--demo-state", "approval", "--no-color"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("awaiting consent", proc.stdout)
 
     def test_cli_demo_state_crystallize(self):
         cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "--once", "--demo-state", "crystallize", "--no-color"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("crystallized", proc.stdout)
 
     def test_cli_subcommands(self):
         # Test 'once plain' positional sugar
         cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "once", "plain", "--no-color"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("Prism - ready", proc.stdout)
 
         # Test 'focus once' positional sugar
         cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "focus", "once", "plain", "--no-color"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("Comp: focus", proc.stdout)
 
@@ -99,7 +106,7 @@ class TestTerminalModes(unittest.TestCase):
     def test_tmux_subcommands(self):
         # Outside tmux, should print notice with top or side instructions without crashing
         cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "tmux", "top"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("Notice: Not currently inside a tmux session", proc.stdout)
 

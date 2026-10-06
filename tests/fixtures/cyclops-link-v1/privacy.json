@@ -1,0 +1,75 @@
+{
+  "description": "Adversarial host facts for one in-progress Keeper session whose tool call reaches Claude Code. A conforming presence turns these facts into the expected record and nothing more. None of the forbidden strings may appear (case-sensitively) in the Link file, the peer display, or any Link telemetry or log.",
+  "salt_hex": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265",
+  "presence": "keeper",
+  "host_facts": {
+    "prompt": "deploy with key sk-live-4f9a8b7c6d5e4f3a2b1c and password hunter2",
+    "response": "Here is the private key -----BEGIN OPENSSH PRIVATE KEY-----",
+    "command": "rm -rf /home/alex/.ssh && claude -p \"rotate AKIAIOSFODNN7EXAMPLE\"",
+    "arguments": [
+      "--token",
+      "ghp_16C7e42F292c6912E7710c838347Ae178B4a"
+    ],
+    "tool_name": "mcp__vault__read_secret",
+    "tool_result": "DATABASE_URL=postgres://admin:s3cr3t@db.internal/prod",
+    "cwd": "/home/alex/clients/acme-merger",
+    "paths": [
+      "/home/alex/.ssh/id_ed25519",
+      "~/.aws/credentials"
+    ],
+    "model": "gpt-5.5-codex",
+    "user": "alex",
+    "session_id": "019a1c2e-7d3b-7f21-8a90-3b4c5d6e7f80",
+    "call_id": "call_Zx81QmP0vL2k"
+  },
+  "semantic_events": [
+    {
+      "event": "turn.start"
+    },
+    {
+      "event": "tool.start",
+      "peer_reach": "spark"
+    }
+  ],
+  "expect_record": {
+    "v": 1,
+    "presence": "keeper",
+    "host": "codex",
+    "instance": "c24cc1e9ad5176dd",
+    "room": "1ea6cc291808f25e",
+    "state": "tool",
+    "tools": 1,
+    "branches": 0,
+    "reaching": [
+      "spark"
+    ],
+    "ended": false
+  },
+  "note": "updated_at is not compared. The derived room and instance use the fixture salt; real installations use their own random salt.",
+  "forbidden_substrings": [
+    "sk-live-4f9a8b7c6d5e4f3a2b1c",
+    "hunter2",
+    "OPENSSH",
+    "rm -rf",
+    ".ssh",
+    "AKIAIOSFODNN7EXAMPLE",
+    "ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+    "--token",
+    "mcp__vault__read_secret",
+    "read_secret",
+    "vault",
+    "postgres://",
+    "s3cr3t",
+    "/home/",
+    "acme",
+    "merger",
+    "id_ed25519",
+    ".aws",
+    "gpt-5.5",
+    "claude -p",
+    "alex",
+    "019a1c2e",
+    "call_Zx81QmP0vL2k",
+    "Zx81"
+  ]
+}

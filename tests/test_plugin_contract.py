@@ -14,7 +14,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue(p_path.is_file(), "plugin.json must exist")
         data = json.loads(p_path.read_text(encoding="utf-8"))
         self.assertEqual(data.get("name"), "cyclops-prism")
-        self.assertEqual(data.get("version"), "1.1.2")
+        self.assertEqual(data.get("version"), "1.2.0")
         self.assertIn("hooks", data)
         self.assertIn("interface", data)
 
@@ -49,6 +49,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue((PLUGIN_ROOT / "commands" / "prism.md").is_file(), "commands/prism.md must exist")
         self.assertTrue((PLUGIN_ROOT / "commands" / "focus.md").is_file(), "commands/focus.md must exist")
         self.assertTrue((PLUGIN_ROOT / "commands" / "tmux.md").is_file(), "commands/tmux.md must exist")
+        self.assertTrue((PLUGIN_ROOT / "commands" / "link.md").is_file(), "commands/link.md must exist")
         install_sh = PLUGIN_ROOT / "install.sh"
         self.assertTrue(install_sh.is_file(), "install.sh must exist")
         self.assertTrue(os.access(install_sh, os.X_OK), "install.sh must be executable")

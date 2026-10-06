@@ -1,0 +1,1274 @@
+{
+  "description": "Each scenario: a reader (self) at time now with a room policy, and the peer files in LINK_DIR (all with valid 0600 metadata). expect.peers is sorted by (presence, instance); bearing is the direction in degrees from the reader's seat to the peer's seat (counter-clockwise from screen-right), or null for the same presence. expect.threads is the sorted set of class pairs.",
+  "seats": {
+    "prism": 90,
+    "spark": 210,
+    "keeper": 330
+  },
+  "bearings": {
+    "keeper->prism": 120,
+    "keeper->spark": 180,
+    "prism->keeper": 300,
+    "prism->spark": 240,
+    "spark->keeper": 0,
+    "spark->prism": 60
+  },
+  "scenarios": [
+    {
+      "name": "alone",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [],
+      "expect": {
+        "peers": [],
+        "threads": []
+      },
+      "note": "only herself: no peers"
+    },
+    {
+      "name": "valid-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "tool",
+            "tools": 2,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1003,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "c44f9e39cb2aa15b",
+            "state": "tool",
+            "tools": 2,
+            "branches": 0,
+            "bearing": 0
+          }
+        ],
+        "threads": []
+      }
+    },
+    {
+      "name": "three-in-one-room",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "thinking",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "prism-ef8b7180923a3a66.json",
+          "record": {
+            "v": 1,
+            "presence": "prism",
+            "host": "antigravity",
+            "instance": "ef8b7180923a3a66",
+            "room": "f162b7ca5daecd7a",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "prism",
+            "instance": "ef8b7180923a3a66",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 120
+          },
+          {
+            "presence": "spark",
+            "instance": "16643025e682f321",
+            "state": "thinking",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 180
+          }
+        ],
+        "threads": []
+      }
+    },
+    {
+      "name": "stale-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 990.0,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      },
+      "note": "now - updated_at = 15: not present (must be < 15)"
+    },
+    {
+      "name": "just-fresh-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 990.001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "spark",
+            "instance": "16643025e682f321",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 240
+          }
+        ],
+        "threads": []
+      }
+    },
+    {
+      "name": "future-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1007.5,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      },
+      "note": "more than 2 s in the future: not present"
+    },
+    {
+      "name": "slightly-future-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1006.5,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "spark",
+            "instance": "16643025e682f321",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 240
+          }
+        ],
+        "threads": []
+      }
+    },
+    {
+      "name": "ended-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "ended",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": true
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      }
+    },
+    {
+      "name": "wrong-room",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "c77c084ad6253e86",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      }
+    },
+    {
+      "name": "everywhere",
+      "now": 1005.0,
+      "policy": "everywhere",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "c77c084ad6253e86",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "prism-ef8b7180923a3a66.json",
+          "record": {
+            "v": 1,
+            "presence": "prism",
+            "host": "antigravity",
+            "instance": "ef8b7180923a3a66",
+            "room": "f162b7ca5daecd7a",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "c44f9e39cb2aa15b",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 0
+          },
+          {
+            "presence": "prism",
+            "instance": "ef8b7180923a3a66",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 60
+          }
+        ],
+        "threads": []
+      }
+    },
+    {
+      "name": "multiple-instances",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "keeper-a69acf9beea13354.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "a69acf9beea13354",
+            "room": "f162b7ca5daecd7a",
+            "state": "waiting",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1003,
+            "ended": false
+          }
+        },
+        {
+          "filename": "spark-22da673836fbb641.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "22da673836fbb641",
+            "room": "f162b7ca5daecd7a",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1002,
+            "ended": false
+          }
+        },
+        {
+          "filename": "spark-5f7d34b64c257234.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "5f7d34b64c257234",
+            "room": "f162b7ca5daecd7a",
+            "state": "stopped",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "a69acf9beea13354",
+            "state": "waiting",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 300
+          },
+          {
+            "presence": "keeper",
+            "instance": "c44f9e39cb2aa15b",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 300
+          },
+          {
+            "presence": "spark",
+            "instance": "16643025e682f321",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 240
+          },
+          {
+            "presence": "spark",
+            "instance": "22da673836fbb641",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 240
+          },
+          {
+            "presence": "spark",
+            "instance": "5f7d34b64c257234",
+            "state": "stopped",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 240
+          }
+        ],
+        "threads": []
+      },
+      "note": "never merge instances"
+    },
+    {
+      "name": "same-presence-peer",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-a69acf9beea13354.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "a69acf9beea13354",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "a69acf9beea13354",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": null
+          }
+        ],
+        "threads": []
+      },
+      "note": "another Keeper: same seat, bearing null"
+    },
+    {
+      "name": "outgoing-handoff",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 1,
+        "branches": 0,
+        "reaching": [
+          "keeper"
+        ],
+        "updated_at": 1005,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "tool",
+            "tools": 2,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1003,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "c44f9e39cb2aa15b",
+            "state": "tool",
+            "tools": 2,
+            "branches": 0,
+            "bearing": 0
+          }
+        ],
+        "threads": [
+          {
+            "from": "spark",
+            "to": "keeper"
+          }
+        ]
+      }
+    },
+    {
+      "name": "outgoing-without-target",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 1,
+        "branches": 0,
+        "reaching": [
+          "keeper"
+        ],
+        "updated_at": 1005,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "prism-ef8b7180923a3a66.json",
+          "record": {
+            "v": 1,
+            "presence": "prism",
+            "host": "antigravity",
+            "instance": "ef8b7180923a3a66",
+            "room": "f162b7ca5daecd7a",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "prism",
+            "instance": "ef8b7180923a3a66",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 60
+          }
+        ],
+        "threads": []
+      },
+      "note": "Spark reaches Keeper but no Keeper is present: no thread"
+    },
+    {
+      "name": "arriving-handoff",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "tool",
+            "tools": 1,
+            "branches": 0,
+            "reaching": [
+              "keeper"
+            ],
+            "updated_at": 1004,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "spark",
+            "instance": "16643025e682f321",
+            "state": "tool",
+            "tools": 1,
+            "branches": 0,
+            "bearing": 180
+          }
+        ],
+        "threads": [
+          {
+            "from": "spark",
+            "to": "keeper"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stale-handoff-disappears",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "tool",
+            "tools": 1,
+            "branches": 0,
+            "reaching": [
+              "keeper"
+            ],
+            "updated_at": 989,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      },
+      "note": "the reaching Spark is stale: neither she nor her thread is drawn"
+    },
+    {
+      "name": "ended-handoff-disappears",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "ended",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [
+              "keeper"
+            ],
+            "updated_at": 1004,
+            "ended": true
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      }
+    },
+    {
+      "name": "handoff-other-room",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "c77c084ad6253e86",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [
+              "keeper"
+            ],
+            "updated_at": 1004,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [],
+        "threads": []
+      }
+    },
+    {
+      "name": "peer-to-peer-thread",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [
+              "prism"
+            ],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "prism-ef8b7180923a3a66.json",
+          "record": {
+            "v": 1,
+            "presence": "prism",
+            "host": "antigravity",
+            "instance": "ef8b7180923a3a66",
+            "room": "f162b7ca5daecd7a",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "c44f9e39cb2aa15b",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 0
+          },
+          {
+            "presence": "prism",
+            "instance": "ef8b7180923a3a66",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 60
+          }
+        ],
+        "threads": [
+          {
+            "from": "keeper",
+            "to": "prism"
+          }
+        ]
+      },
+      "note": "a reader may draw threads between two peers"
+    },
+    {
+      "name": "two-way",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [
+          "spark"
+        ],
+        "updated_at": 1005,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "spark-16643025e682f321.json",
+          "record": {
+            "v": 1,
+            "presence": "spark",
+            "host": "claude-code",
+            "instance": "16643025e682f321",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [
+              "prism"
+            ],
+            "updated_at": 1004,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "spark",
+            "instance": "16643025e682f321",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 240
+          }
+        ],
+        "threads": [
+          {
+            "from": "prism",
+            "to": "spark"
+          },
+          {
+            "from": "spark",
+            "to": "prism"
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid-peer-ignored",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1005.0,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 999,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "prism-ef8b7180923a3a66.json",
+          "record": {
+            "v": 1,
+            "presence": "prism",
+            "host": "antigravity",
+            "instance": "ef8b7180923a3a66",
+            "room": "f162b7ca5daecd7a",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1001,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "prism",
+            "instance": "ef8b7180923a3a66",
+            "state": "idle",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 60
+          }
+        ],
+        "threads": []
+      },
+      "note": "an invalid record is ignored completely, with no partial salvage"
+    },
+    {
+      "name": "class-reach-many-targets",
+      "now": 1005.0,
+      "policy": "room",
+      "self": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [
+          "keeper"
+        ],
+        "updated_at": 1005,
+        "ended": false
+      },
+      "files": [
+        {
+          "filename": "keeper-c44f9e39cb2aa15b.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "c44f9e39cb2aa15b",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1004,
+            "ended": false
+          }
+        },
+        {
+          "filename": "keeper-a69acf9beea13354.json",
+          "record": {
+            "v": 1,
+            "presence": "keeper",
+            "host": "codex",
+            "instance": "a69acf9beea13354",
+            "room": "f162b7ca5daecd7a",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "reaching": [],
+            "updated_at": 1003,
+            "ended": false
+          }
+        }
+      ],
+      "expect": {
+        "peers": [
+          {
+            "presence": "keeper",
+            "instance": "a69acf9beea13354",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 0
+          },
+          {
+            "presence": "keeper",
+            "instance": "c44f9e39cb2aa15b",
+            "state": "working",
+            "tools": 0,
+            "branches": 0,
+            "bearing": 0
+          }
+        ],
+        "threads": [
+          {
+            "from": "spark",
+            "to": "keeper"
+          }
+        ]
+      },
+      "note": "one class thread; it does not claim which Keeper received it"
+    }
+  ]
+}

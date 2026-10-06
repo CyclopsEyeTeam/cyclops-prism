@@ -1,0 +1,1275 @@
+{
+  "description": "Each case is one file in a temporary LINK_DIR. expect is valid or invalid; an invalid record is ignored completely.",
+  "fixture_room": "f162b7ca5daecd7a",
+  "fixture_instances": {
+    "spark-1": "16643025e682f321",
+    "spark-2": "22da673836fbb641",
+    "spark-3": "5f7d34b64c257234",
+    "keeper-1": "c44f9e39cb2aa15b",
+    "keeper-2": "a69acf9beea13354",
+    "prism-1": "ef8b7180923a3a66",
+    "prism-2": "02ac2e50cef321a7"
+  },
+  "cases": [
+    {
+      "name": "valid",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "valid"
+    },
+    {
+      "name": "valid-unknown-field",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false,
+        "mood": "sunny",
+        "extra": {
+          "x": 1
+        }
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "valid",
+      "reason": "unknown fields are ignored"
+    },
+    {
+      "name": "valid-max-bounds",
+      "record": {
+        "v": 1,
+        "presence": "spark",
+        "host": "claude-code",
+        "instance": "16643025e682f321",
+        "room": "f162b7ca5daecd7a",
+        "state": "working",
+        "tools": 256,
+        "branches": 32,
+        "reaching": [
+          "keeper",
+          "prism"
+        ],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "spark-16643025e682f321.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "valid"
+    },
+    {
+      "name": "valid-ended",
+      "record": {
+        "v": 1,
+        "presence": "prism",
+        "host": "antigravity",
+        "instance": "ef8b7180923a3a66",
+        "room": "f162b7ca5daecd7a",
+        "state": "ended",
+        "tools": 0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": true
+      },
+      "filename": "prism-ef8b7180923a3a66.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "valid",
+      "reason": "valid, but never present"
+    },
+    {
+      "name": "missing-v",
+      "record": {
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "v is required"
+    },
+    {
+      "name": "missing-presence",
+      "record": {
+        "v": 1,
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "presence is required"
+    },
+    {
+      "name": "missing-host",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "host is required"
+    },
+    {
+      "name": "missing-instance",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "instance is required"
+    },
+    {
+      "name": "missing-room",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "room is required"
+    },
+    {
+      "name": "missing-state",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "state is required"
+    },
+    {
+      "name": "missing-tools",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "tools is required"
+    },
+    {
+      "name": "missing-branches",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "branches is required"
+    },
+    {
+      "name": "missing-reaching",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "reaching is required"
+    },
+    {
+      "name": "missing-updated_at",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "updated_at is required"
+    },
+    {
+      "name": "missing-ended",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "ended is required"
+    },
+    {
+      "name": "version-2",
+      "record": {
+        "v": 2,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "incompatible version is ignored"
+    },
+    {
+      "name": "version-true",
+      "record": {
+        "v": true,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "boolean is not the integer 1"
+    },
+    {
+      "name": "version-float",
+      "record": {
+        "v": 1.0,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "1.0 is not the integer 1"
+    },
+    {
+      "name": "unknown-presence",
+      "record": {
+        "v": 1,
+        "presence": "nova",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "unknown presence"
+    },
+    {
+      "name": "unknown-host",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "cursor",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "unknown host"
+    },
+    {
+      "name": "host-mismatch",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "claude-code",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "keeper must publish host codex"
+    },
+    {
+      "name": "unknown-state",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "dreaming",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "state outside the vocabulary"
+    },
+    {
+      "name": "instance-uppercase",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "C44F9E39CB2AA15B",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "instance must be lowercase hex"
+    },
+    {
+      "name": "instance-short",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "instance must be 16 hex"
+    },
+    {
+      "name": "room-17",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7aa",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "room must be 16 hex"
+    },
+    {
+      "name": "room-not-hex",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "zzzzzzzzzzzzzzzz",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "room must be hex"
+    },
+    {
+      "name": "tools-negative",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": -1,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "tools out of range"
+    },
+    {
+      "name": "tools-257",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 257,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "tools out of range"
+    },
+    {
+      "name": "tools-float",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2.0,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "tools must be an integer"
+    },
+    {
+      "name": "tools-bool",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": true,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "boolean is not an integer"
+    },
+    {
+      "name": "branches-33",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 33,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "branches out of range"
+    },
+    {
+      "name": "branches-bool",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": false,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "boolean is not an integer"
+    },
+    {
+      "name": "reaching-duplicate",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [
+          "spark",
+          "spark"
+        ],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "duplicate reaching entry"
+    },
+    {
+      "name": "reaching-self",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [
+          "keeper"
+        ],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "a presence cannot reach herself"
+    },
+    {
+      "name": "reaching-unknown",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [
+          "nova"
+        ],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "unknown presence in reaching"
+    },
+    {
+      "name": "reaching-not-array",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": "spark",
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "reaching must be an array"
+    },
+    {
+      "name": "updated-at-string",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": "1000",
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "updated_at must be a number"
+    },
+    {
+      "name": "updated-at-zero",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "updated_at must be > 0"
+    },
+    {
+      "name": "updated-at-bool",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": true,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "boolean is not a number"
+    },
+    {
+      "name": "ended-int",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": 0
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "ended must be a boolean"
+    },
+    {
+      "name": "filename-mismatch",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-a69acf9beea13354.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "file name must match presence and instance"
+    },
+    {
+      "name": "filename-presence-mismatch",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "spark-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "file name must match presence"
+    },
+    {
+      "name": "raw-nan",
+      "raw": "{\"v\": 1, \"presence\": \"keeper\", \"host\": \"codex\", \"instance\": \"c44f9e39cb2aa15b\", \"room\": \"f162b7ca5daecd7a\", \"state\": \"tool\", \"tools\": 2, \"branches\": 0, \"reaching\": [], \"updated_at\": NaN, \"ended\": false}",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "NaN is not a finite number (not valid JSON; reject if a parser accepts it)"
+    },
+    {
+      "name": "raw-infinity",
+      "raw": "{\"v\": 1, \"presence\": \"keeper\", \"host\": \"codex\", \"instance\": \"c44f9e39cb2aa15b\", \"room\": \"f162b7ca5daecd7a\", \"state\": \"tool\", \"tools\": 2, \"branches\": 0, \"reaching\": [], \"updated_at\": Infinity, \"ended\": false}",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "Infinity is not finite"
+    },
+    {
+      "name": "raw-huge-exponent",
+      "raw": "{\"v\": 1, \"presence\": \"keeper\", \"host\": \"codex\", \"instance\": \"c44f9e39cb2aa15b\", \"room\": \"f162b7ca5daecd7a\", \"state\": \"tool\", \"tools\": 2, \"branches\": 0, \"reaching\": [], \"updated_at\": 1e400, \"ended\": false}",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "overflows to infinity: not finite"
+    },
+    {
+      "name": "raw-malformed",
+      "raw": "{\"v\":1,\"presence\":\"keeper\",",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "malformed JSON"
+    },
+    {
+      "name": "raw-array",
+      "raw": "[1,2,3]",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "top level must be an object"
+    },
+    {
+      "name": "raw-empty",
+      "raw": "",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "empty file"
+    },
+    {
+      "name": "raw-utf16",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "not UTF-8",
+      "raw_hex": "fffe7b002200760022003a00200031002c0020002200700072006500730065006e006300650022003a00200022006b006500650070006500720022002c002000220068006f007300740022003a002000220063006f0064006500780022002c002000220069006e007300740061006e006300650022003a0020002200630034003400660039006500330039006300620032006100610031003500620022002c002000220072006f006f006d0022003a0020002200660031003600320062003700630061003500640061006500630064003700610022002c00200022007300740061007400650022003a002000220074006f006f006c0022002c002000220074006f006f006c00730022003a00200032002c00200022006200720061006e00630068006500730022003a00200030002c00200022007200650061006300680069006e00670022003a0020005b005d002c002000220075007000640061007400650064005f006100740022003a00200031003000300030002e0030002c002000220065006e0064006500640022003a002000660061006c00730065007d00"
+    },
+    {
+      "name": "oversized",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false,
+        "padding": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "file larger than 4096 bytes"
+    },
+    {
+      "name": "symlink",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "symlink",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "never follow symlinks"
+    },
+    {
+      "name": "directory",
+      "raw": "",
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "dir",
+        "mode": "0700",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "not a regular file"
+    },
+    {
+      "name": "group-writable",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0620",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "writable by group"
+    },
+    {
+      "name": "world-writable",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0606",
+        "owner": "self"
+      },
+      "expect": "invalid",
+      "reason": "writable by others"
+    },
+    {
+      "name": "group-readable-ok",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0640",
+        "owner": "self"
+      },
+      "expect": "valid",
+      "reason": "readable-but-not-writable by group is accepted by readers; writers still use 0600"
+    },
+    {
+      "name": "other-owner",
+      "record": {
+        "v": 1,
+        "presence": "keeper",
+        "host": "codex",
+        "instance": "c44f9e39cb2aa15b",
+        "room": "f162b7ca5daecd7a",
+        "state": "tool",
+        "tools": 2,
+        "branches": 0,
+        "reaching": [],
+        "updated_at": 1000.0,
+        "ended": false
+      },
+      "filename": "keeper-c44f9e39cb2aa15b.json",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "other"
+      },
+      "expect": "invalid",
+      "reason": "not owned by the current UID",
+      "needs": "other-uid"
+    }
+  ],
+  "ignored_names": [
+    ".keeper-c44f9e39cb2aa15b.ab12.tmp",
+    "keeper-c44f9e39cb2aa15b.json.tmp",
+    "keeper.json",
+    "nova-c44f9e39cb2aa15b.json",
+    "keeper-C44F9E39CB2AA15B.json",
+    "README",
+    ".salt"
+  ]
+}

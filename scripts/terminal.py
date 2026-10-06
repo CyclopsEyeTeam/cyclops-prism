@@ -17,6 +17,7 @@ from pathlib import Path
 import shutil
 import signal
 import sys
+import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
@@ -28,6 +29,11 @@ try:
     import presence_feed
 except ImportError:
     presence_feed = None
+try:
+    import link
+    import link_view
+except ImportError:
+    link = link_view = None
 
 # Truecolor RGB escape sequences
 C_RESET = "\033[0m"
@@ -84,7 +90,8 @@ class TerminalGrid:
                 ch = self.chars[y][x]
                 col = self.colors[y][x] if self.use_color else ""
                 if self.use_color and col != cur_color:
-                    line.append(C_RESET if not col else col)
+                    # a cell with a background (a peer's half-block mark) must not lend it to the next cell
+                    line.append(C_RESET if not col else (C_RESET + col if "[48;" in cur_color else col))
                     cur_color = col
                 line.append(ch)
             if self.use_color and cur_color:
@@ -103,8 +110,13 @@ def render_prism_frame(
     use_color: bool = True,
     reduced_motion: bool = False,
     calm: bool = False,
+    link_state: Optional[dict] = None,
+    link_sheets: Optional[dict] = None,
 ) -> str:
-    """Render one complete ASCII/ANSI terminal frame for Prism."""
+    """Render one complete ASCII/ANSI terminal frame for Prism.
+
+    link_state: the Cyclops Link view (peers and threads) when Link is on; None draws Prism alone.
+    """
     grid = TerminalGrid(width, height, use_color=use_color)
     cx = width // 2
     cy = height // 2 - 1
@@ -291,14 +303,21 @@ def render_prism_frame(
         grid.put(cx, cy + 1, dn, core_col)
         grid.put(cx, cy, g_core, C_WHITE if offer else core_col)
 
-    # 5. Status Banner
+    # 5. Cyclops Link: Spark and Keeper in their own looks at their seats, and the threads they declare
     hud_y = height - 2
+    if link_state is not None and link_view is not None:
+        link_view.draw(grid, link_state, link_sheets or {}, centre=(cx, cy), hud_y=hud_y, t=t,
+                       unicode_mode=unicode_mode, use_color=use_color, reduced_motion=reduced_motion or ended)
+
+    # 6. Status Banner
     display_hover = hover if unicode_mode else hover.replace("·", "-")
     status_bar = f" {g_core}  {display_hover} "
     grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, core_col)
 
     if is_focus:
         sub_info = f"Calls: {active_calls}  Branches: {active_branches}  Offer: {offer or 'none'}  Comp: {mode}"
+        if link_state is not None and link_view is not None:
+            sub_info += "  " + link_view.status(link_state)
         grid.put_str(max(1, (width - len(sub_info)) // 2), hud_y + 1, sub_info, C_DIM)
 
     return grid.render()
@@ -318,6 +337,7 @@ def load_feed_state(feed_dir: Path) -> dict:
                 if isinstance(events, list) and events:
                     active_calls = []
                     active_branches = 0
+                    offer = None
                     latest = events[-1]
                     typ = latest.get("type", "turn.attend")
 
@@ -331,6 +351,11 @@ def load_feed_state(feed_dir: Path) -> dict:
                             active_branches += 1
                         elif t_name == "branch.resolve" and active_branches > 0:
                             active_branches -= 1
+                        # the reply is held out from its turn's resolve until a new turn, a halt, a copy or a wake
+                        if t_name in ("turn.resolve", "reply.crystallize"):
+                            offer = "crystallize"
+                        elif t_name in ("session.wake", "turn.attend", "turn.halt", "reply.copied"):
+                            offer = None
 
                     if typ == "session.end":
                         sem_mode = "ended"
@@ -342,6 +367,8 @@ def load_feed_state(feed_dir: Path) -> dict:
                         sem_mode = "branching"
                     elif typ in ("reply.crystallize", "turn.resolve"):
                         sem_mode = "resolved"
+                    elif typ == "turn.halt":
+                        sem_mode = "halted"
                     else:
                         sem_mode = "attending" if typ == "turn.attend" else "idle"
 
@@ -476,6 +503,35 @@ def handle_tmux(subcmd: str = "split") -> None:
         return
 
 
+def handle_link(subcmd: str = "status") -> None:
+    """prism link on | off | status: Prism's own Cyclops Link switch (off until you turn it on)."""
+    if link is None:
+        print("Cyclops Link is not available in this install.")
+        sys.exit(1)
+    if subcmd in ("on", "off"):
+        path = link.set_enabled(subcmd == "on")
+        if subcmd == "on":
+            print("✓ Prism Link on: she shares her coarse state and sees Spark and Keeper working in the same folder.")
+            print("  Nothing else is shared: no prompts, commands, paths or names. Off again: prism link off")
+        else:
+            print("✓ Prism Link off. Her record says she has ended and is removed a minute later.")
+        print(f"  (switch: {path})")
+        return
+    on = link.enabled()
+    print(f"Prism Link: {'on' if on else 'off'}" + ("  (PRISM_LINK overrides the switch)" if os.environ.get("PRISM_LINK") else ""))
+    if not on:
+        print("  Turn on: prism link on")
+        return
+    watch = link_view.Watch()
+    feed = presence_feed.find_active_feed() if presence_feed else None
+    view = watch.view(feed)
+    print("  " + link_view.status(view))
+    for peer in (view or {}).get("peers", []):
+        print(f"  · {peer['presence']} {peer['state']}  tools {peer['tools']}  branches {peer['branches']}")
+    for th in (view or {}).get("threads", []):
+        print(f"  · thread {th['from']} → {th['to']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prism Terminal Presence Observer")
     parser.add_argument("--feed", type=Path, default=None, help="Path to presence feed directory (containing live.json)")
@@ -493,6 +549,9 @@ def main():
     if raw_args and raw_args[0] == "tmux":
         subaction = raw_args[1] if len(raw_args) > 1 else "split"
         handle_tmux(subaction)
+        sys.exit(0)
+    if raw_args and raw_args[0] == "link":
+        handle_link(raw_args[1] if len(raw_args) > 1 else "status")
         sys.exit(0)
 
     normalized_args = []
@@ -518,6 +577,9 @@ def main():
     if not feed_dir and not args.demo and not args.demo_state and presence_feed:
         feed_dir = presence_feed.find_active_feed()
 
+    # Cyclops Link: only drawn while Prism is linked; demos never show live peers
+    watch = link_view.Watch() if (link_view is not None and not args.demo and not args.demo_state) else None
+
     # One-shot rendering (--once)
     if args.once:
         cols, rows = shutil.get_terminal_size((80, 24))
@@ -538,6 +600,8 @@ def main():
             use_color=use_color,
             reduced_motion=args.reduced_motion,
             calm=args.calm,
+            link_state=watch.view(feed_dir) if watch else None,
+            link_sheets=watch.sheets if watch else None,
         )
         print(frame)
         sys.exit(0)
@@ -583,6 +647,8 @@ def main():
                 use_color=use_color,
                 reduced_motion=args.reduced_motion,
                 calm=args.calm,
+                link_state=watch.view(feed_dir) if watch else None,
+                link_sheets=watch.sheets if watch else None,
             )
 
             # Atomic synchronized redraw with cursor hide & cursor park

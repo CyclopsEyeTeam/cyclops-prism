@@ -469,6 +469,62 @@ def start_daemon(data_root: Path, session_id: str, presence_root: Path) -> None:
         fcntl.flock(probe, fcntl.LOCK_UN)
 
 
+class _LinkBeat:
+    """Cyclops Link heartbeat for this session, inside the daemon that already tracks the host's life."""
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.writer = None
+        self.checked = -1e9
+        self.on = False
+
+    def tick(self, record: Dict[str, Any], alive: bool) -> None:
+        try:
+            import link
+            now = time.time()
+            if now - self.checked >= 1.0:
+                self.checked = now
+                was = self.on
+                self.on = link.enabled()
+                if was and not self.on and self.writer is not None:
+                    self.writer.end()  # switched off: say so once, then stop
+                    self.writer = None
+            if not self.on:
+                return
+            word = (record.get("link") or {}).get("state") if isinstance(record.get("link"), dict) else None
+            if word is None:
+                return
+            if self.writer is None:
+                folder = os.getcwd()
+                pid = (record.get("producer") or {}).get("pid")
+                try:
+                    folder = os.readlink(f"/proc/{int(pid)}/cwd")
+                except (OSError, TypeError, ValueError):
+                    pass
+                self.writer = link.Writer(self.session_id, folder)
+                self.writer.publish(word)
+            if not alive:
+                if not (self.writer.last or {}).get("ended"):
+                    self.writer.end()
+                return
+            if self.writer.last is None or self.writer.last["state"] != word:
+                self.writer.publish(word)
+            else:
+                self.writer.heartbeat()
+        except Exception:
+            pass
+
+    def linger(self) -> None:
+        """After a truthful end, keep the record for the grace period, then remove this session's own file."""
+        if self.writer is None or self.writer.ended_at is None:
+            return
+        time.sleep(61.0)
+        try:
+            self.writer.cleanup()
+        except Exception:
+            pass
+
+
 def run_daemon(data_root: Path, session_id: str, presence_root: Path) -> None:
     """Background heartbeat loop and truthful host liveness monitor."""
     session_hash = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
@@ -491,6 +547,7 @@ def run_daemon(data_root: Path, session_id: str, presence_root: Path) -> None:
         except OSError:
             pass
 
+        beat = _LinkBeat(session_id)
         try:
             while True:
                 flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
@@ -523,7 +580,9 @@ def run_daemon(data_root: Path, session_id: str, presence_root: Path) -> None:
                             append_event(record, {"seq": record.get("seq", 0) + 1, "t": time.time(), "type": "session.end"})
                             flush(record, presence_root, session_id=session_id, force=True)
                             _atomic_json(state_path, record)
-                            return
+                            beat.tick(record, alive=False)
+                            break
+                        beat.tick(record, alive=True)
 
                         # Host is alive: flush dirty feeds or periodic heartbeat
                         published = flush(record, presence_root, session_id=session_id)
@@ -534,6 +593,7 @@ def run_daemon(data_root: Path, session_id: str, presence_root: Path) -> None:
                         return
 
                 time.sleep(0.2)
+            beat.linger()
         finally:
             try:
                 pid_path.unlink()

@@ -24,6 +24,43 @@ import feed_state
 import presence_feed
 
 
+# Cyclops Link (off unless the person turned it on): the observed event's phase, never its content
+LINK_PHASE = {"session.wake": "wake", "turn.attend": "attending", "turn.resolve": "resolved",
+              "turn.halt": "halted", "session.end": "ended"}
+
+
+def _host_folder() -> str:
+    """The Antigravity process's own working folder: the project this session belongs to."""
+    host = presence_feed.find_host_identity()
+    try:
+        if host and host.get("pid"):
+            return os.readlink(f"/proc/{host['pid']}/cwd")
+    except OSError:
+        pass
+    return os.getcwd()
+
+
+def _link_publish(record: dict, event: dict, session_id: str) -> None:
+    try:
+        import link
+        if not link.enabled():
+            return
+        state = record.get("link") if isinstance(record.get("link"), dict) else {}
+        folder = _host_folder()
+        word = link.coarse_state(LINK_PHASE.get(event.get("type"), ""), state.get("state"))
+        if word is None:
+            return
+        writer = link.Writer(session_id, folder)
+        if word == "ended":
+            ok = writer.publish("working") and writer.end()
+        else:
+            ok = writer.publish(word)
+        if ok:
+            record["link"] = {"state": word}
+    except Exception:
+        pass  # Link is decoration: it never disturbs Antigravity
+
+
 def handle_event(payload: dict) -> None:
     """Process a single hook payload safely and update session state."""
     presence_root, session_id = presence_feed.resolve_target(payload=payload)
@@ -73,10 +110,12 @@ def handle_event(payload: dict) -> None:
             if event:
                 presence_feed.append_event(record, event)
                 presence_feed.flush(record, presence_root, session_id=session_id)
+                _link_publish(record, event, session_id)
                 presence_feed._atomic_json(state_path, record)
 
                 # Ensure detached heartbeat daemon is running
-                presence_feed.start_daemon(data_root, session_id, presence_root)
+                if not os.environ.get("PRISM_NO_DAEMON"):
+                    presence_feed.start_daemon(data_root, session_id, presence_root)
         except Exception:
             pass
 

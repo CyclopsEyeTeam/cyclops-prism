@@ -1,0 +1,186 @@
+{
+  "description": "derive(kind, identity) = hex(SHA-256(\"cyclops-link/v1/\" || kind || 0x00 || salt_bytes || identity_bytes))[0:16]. For instances, identity_bytes = host || 0x0A || session_id (UTF-8).",
+  "salt_file": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265\n",
+  "salt_hex": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265",
+  "room": [
+    {
+      "project_identity": "/home/alex/projects/demo",
+      "expect": "f162b7ca5daecd7a"
+    },
+    {
+      "project_identity": "/home/alex/projects/demo-2",
+      "expect": "c77c084ad6253e86"
+    },
+    {
+      "project_identity": "/",
+      "expect": "eec1fb9f61d68312"
+    },
+    {
+      "project_identity": "/home/alex/Проекты/ünïcode space",
+      "expect": "dd474328eb75dba5"
+    }
+  ],
+  "instance": [
+    {
+      "host": "claude-code",
+      "session_id": "b6d1f6a2-5c1e-4b8e-9f0a-2c3d4e5f6a7b",
+      "expect": "3f0106aa49499e90"
+    },
+    {
+      "host": "codex",
+      "session_id": "019a1c2e-7d3b-7f21-8a90-3b4c5d6e7f80",
+      "expect": "c24cc1e9ad5176dd"
+    },
+    {
+      "host": "antigravity",
+      "session_id": "conv_8f1e2d3c4b5a69788776",
+      "expect": "2e768a4e66198251"
+    },
+    {
+      "host": "codex",
+      "session_id": "b6d1f6a2-5c1e-4b8e-9f0a-2c3d4e5f6a7b",
+      "expect": "8b96607a4fa7c785"
+    }
+  ],
+  "notes": [
+    "The last instance case reuses a Claude Code session id under the codex host: it must differ from the first.",
+    "Rooms of different folders differ; the same folder always gives the same room for the same salt."
+  ],
+  "salt_validity": [
+    {
+      "name": "valid",
+      "content": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265\n",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "valid"
+    },
+    {
+      "name": "no-newline",
+      "content": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "uppercase-hex",
+      "content": "6C696E6B2D76312D666978747572652D73616C742D6E6F742D612D7365637265\n",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "short",
+      "content": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d73656372\n",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "group-readable",
+      "content": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265\n",
+      "fs": {
+        "type": "file",
+        "mode": "0640",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "symlink",
+      "content": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265\n",
+      "fs": {
+        "type": "symlink",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "other-owner",
+      "content": "6c696e6b2d76312d666978747572652d73616c742d6e6f742d612d7365637265\n",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "other"
+      },
+      "expect": "refuse",
+      "needs": "other-uid"
+    }
+  ],
+  "directory_validity": [
+    {
+      "name": "valid",
+      "fs": {
+        "type": "dir",
+        "mode": "0700",
+        "owner": "self"
+      },
+      "expect": "use"
+    },
+    {
+      "name": "group-readable",
+      "fs": {
+        "type": "dir",
+        "mode": "0750",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "world-writable",
+      "fs": {
+        "type": "dir",
+        "mode": "0777",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "symlink-to-dir",
+      "fs": {
+        "type": "symlink",
+        "mode": "0700",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "a-file",
+      "fs": {
+        "type": "file",
+        "mode": "0600",
+        "owner": "self"
+      },
+      "expect": "refuse"
+    },
+    {
+      "name": "other-owner",
+      "fs": {
+        "type": "dir",
+        "mode": "0700",
+        "owner": "other"
+      },
+      "expect": "refuse",
+      "needs": "other-uid"
+    },
+    {
+      "name": "missing",
+      "fs": {
+        "type": "absent"
+      },
+      "expect": "create-0700-then-use"
+    }
+  ]
+}

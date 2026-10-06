@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0 - Cyclops Link
+
+- **Cyclops Link** (off until `prism link on`): Prism, Spark and Keeper notice each other when they work in the same
+  folder. Spark and Keeper appear in both companion layouts at their seats (lower left, lower right), each in their own
+  exported look, with threads while one calls another. Prism shares only her coarse state; her session daemon keeps it
+  fresh while Antigravity runs and says so when it closes.
+- Prism's own Link mark sheet (`link-mark/prism.json`, with a 7 x 3 core for small hosts), exported from her renderer.
+- Fixed: the live feed's reply offer was never computed, so a live session always showed `Prism · ready`; live states now
+  show, including `crystallized` after a turn and `halted`.
+- Fixed: `prism tmux status|top|side` failed for a missing `subprocess` import.
+- The terminal CLI tests now run against an empty state folder instead of whatever session ran last on the machine.
+- Every `PreInvocation` is a `turn.attend` (Prism's own fix), so the first turn reads `attending`, in agreement with the
+  `working` she publishes through Link.
+
 ## 1.1.2 - Top View Layout & Flicker-Free Telemetry
 
 - **Top View Companion Layout (`agy --prismtop` / `agy-prismtop`)**: Added support for launching Prism in a wide companion banner at the top of Antigravity (`split-window -b -v -l 14`) with automatic cursor focus placed directly into `agy` below.
