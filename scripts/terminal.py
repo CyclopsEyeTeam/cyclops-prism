@@ -544,15 +544,15 @@ def main():
 
     # Interactive live animation loop
     def restore_and_exit(signum=None, frame=None):
-        sys.stdout.write("\033[?25h\033[0m\n")  # Show cursor, reset color
+        sys.stdout.write("\033[?25h\033[0m\033[?1049l\n")  # Show cursor, reset color, exit alternate screen
         sys.stdout.flush()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, restore_and_exit)
     signal.signal(signal.SIGTERM, restore_and_exit)
 
-    # Hide cursor
-    sys.stdout.write("\033[?25l")
+    # Enter alternate screen buffer & hide cursor
+    sys.stdout.write("\033[?1049h\033[?25l\033[2J\033[H")
     sys.stdout.flush()
 
     try:
@@ -585,12 +585,17 @@ def main():
                 calm=args.calm,
             )
 
-            # Move cursor to home and redraw (clean in-place overwrite; clear on resize/start only)
-            if (cols, rows) != prev_size:
-                prev_size = (cols, rows)
-                sys.stdout.write("\033[2J\033[H" + frame)
-            else:
-                sys.stdout.write("\033[H" + frame)
+            # Atomic synchronized redraw with cursor hide & cursor park
+            clear_seq = "\033[2J" if (cols, rows) != prev_size else ""
+            prev_size = (cols, rows)
+
+            # \033[?2026h: Begin synchronized update (atomic frame render)
+            # \033[?25l: Re-assert cursor hide
+            # \033[H: Cursor home
+            # frame: Artwork
+            # \033[1;1H: Park cursor at top-left
+            # \033[?2026l: End synchronized update
+            sys.stdout.write(f"\033[?2026h\033[?25l{clear_seq}\033[H{frame}\033[1;1H\033[?2026l")
             sys.stdout.flush()
             time.sleep(0.05)
     except (KeyboardInterrupt, SystemExit):
