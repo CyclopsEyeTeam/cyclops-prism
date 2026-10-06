@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.tmp
+.prism-*
+.DS_Store

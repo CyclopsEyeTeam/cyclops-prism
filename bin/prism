@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# prism - Direct CLI runner for Prism Terminal Presence
+set -euo pipefail
+
+# Resolve symlinks so the script works when symlinked into ~/.local/bin or /usr/local/bin
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+exec python3 "${SCRIPT_DIR}/../scripts/terminal.py" "$@"

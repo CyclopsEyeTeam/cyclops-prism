@@ -1,0 +1,13 @@
+{
+  "name": "cyclops-prism",
+  "version": "1.0.0",
+  "description": "Cyclops Prism: Balanced, iridescent working presence and standalone terminal companion for Antigravity.",
+  "hooks": "hooks.json",
+  "interface": {
+    "displayName": "Cyclops Prism",
+    "shortDescription": "A balanced, crystalline twin presence for Antigravity",
+    "longDescription": "A faceted polyhedral core held in counter-rotating polarized light rings: Gemini's quiet, iridescent working presence. Observed activity shapes its attention and reach, with a matching terminal companion.",
+    "developerName": "Gemini × Cyclops",
+    "category": "Productivity"
+  }
+}

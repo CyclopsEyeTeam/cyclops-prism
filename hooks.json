@@ -1,0 +1,49 @@
+{
+  "cyclops-prism": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 scripts/hook.py",
+        "timeout": 3
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "python3 scripts/hook.py",
+        "timeout": 3
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/hook.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/hook.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 scripts/hook.py",
+        "timeout": 3
+      }
+    ]
+  }
+}
