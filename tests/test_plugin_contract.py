@@ -46,8 +46,16 @@ class TestPluginContract(unittest.TestCase):
         rules_text = rules_path.read_text(encoding="utf-8")
         self.assertIn("Privacy", rules_text)
 
+    def test_commands_and_installer(self):
+        self.assertTrue((PLUGIN_ROOT / "commands" / "prism.md").is_file(), "commands/prism.md must exist")
+        self.assertTrue((PLUGIN_ROOT / "commands" / "focus.md").is_file(), "commands/focus.md must exist")
+        self.assertTrue((PLUGIN_ROOT / "commands" / "tmux.md").is_file(), "commands/tmux.md must exist")
+        install_sh = PLUGIN_ROOT / "install.sh"
+        self.assertTrue(install_sh.is_file(), "install.sh must exist")
+        self.assertTrue(os.access(install_sh, os.X_OK), "install.sh must be executable")
+
     def test_executable_permissions(self):
-        for script_rel in ["gemini-prism", "bin/prism", "scripts/hook.py", "scripts/terminal.py"]:
+        for script_rel in ["gemini-prism", "bin/prism", "install.sh", "scripts/hook.py", "scripts/terminal.py"]:
             p = PLUGIN_ROOT / script_rel
             self.assertTrue(p.is_file(), f"{script_rel} must exist")
             self.assertTrue(os.access(p, os.X_OK), f"{script_rel} must have execute permissions")

@@ -1,121 +1,90 @@
-# Cyclops Prism: Standalone Terminal Presence & Antigravity Plugin
+# Cyclops Prism: Antigravity Terminal Presence Plugin
 
-**Cyclops Prism** is a balanced, iridescent working presence and standalone terminal companion for Antigravity (`agy`).
+**Cyclops Prism** is an Antigravity (`agy`) terminal presence plugin that reflects real-time model lifecycle events as a living, crystalline companion.
 
-It visualizes real-time model lifecycle events through a living faceted polyhedral core held in counter-rotating polarized light rings, with dynamic refraction rays for active tool executions and orbital nodes for concurrent subagent branches.
+It visualizes active model thinking and tool execution through a faceted polyhedral core held in counter-rotating polarized light rings, with dynamic refraction rays for active tool operations and orbital nodes for concurrent subagent branches.
 
 ---
 
 ## Features
 
-- **Living Terminal Companion**: Real-time 20 FPS animated ASCII and ANSI Truecolor terminal renderer.
-- **Antigravity Plugin Ready**: Bundled with `plugin.json`, `hooks.json`, `skills/`, and `rules/` for seamless auto-discovery.
-- **Zero-Config Auto-Discovery**: Automatically discovers and binds to active Antigravity sessions without requiring manual `--feed` paths.
-- **Tmux & Statusbar Integration**: Instant single-frame snapshotting via `--once` for shell prompts, tmux status lines, and automation scripts.
-- **Zero External Dependencies**: Implemented entirely in the Python 3.8+ standard library. Requires no `pip` packages.
-- **Adaptive Compositions**:
+- **Antigravity Terminal Plugin**: First-class Antigravity plugin with native lifecycle hooks (`PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`).
+- **Slash Commands in `agy`**: Type `/prism`, `/focus`, or `/tmux` directly inside your Antigravity chat.
+- **Built-in Tmux Integration**: Split a companion pane side-by-side with one command (`prism tmux`) or bind to your tmux status line (`prism tmux status`).
+- **Living 20 FPS Companion**: Real-time animated ANSI Truecolor & ASCII renderer with auto-feed discovery.
+- **Dual Visual Compositions**:
   - `balanced` (default): Compact diamond core with dual polarized rings and status banner.
-  - `focus`: Expanded geometry displaying real-time tool counts, branch counts, and active lanes.
+  - `focus`: Expanded optical geometry displaying real-time tool counts, branch counts, and active lanes.
 - **Strict Zero-Leakage Privacy**: Emits no code, prompts, paths, or secrets. Tool actions are mapped strictly to five finite, safe semantic categories (`inspect`, `change`, `execute`, `service`, `other`).
-- **Resilient Architecture**: Atomic file updates, Linux `/proc/<pid>/stat` PID reuse defense, and fail-open hook execution (< 15ms).
+- **Zero External Dependencies**: Implemented entirely with the Python 3.8+ standard library. Requires no `pip` dependencies.
 
 ---
 
-## Quickstart
+## One-Step Installation
 
-Run directly from the repository root:
+From this directory, run:
 
 ```bash
-# Live interactive animated presence (20 FPS)
-./gemini-prism
+./install.sh
+```
 
-# Instant snapshot (non-interactive)
-./gemini-prism --once
+This will automatically:
+1. Link `prism` into `~/.local/bin/prism`.
+2. Register the plugin into Antigravity via `agy plugin install .`.
 
-# Expanded telemetry mode
-./gemini-prism --mode focus
-
-# Pure ASCII fallback (no Unicode)
-./gemini-prism --plain
-
-# Demonstration mode (cycles through operational states)
-./gemini-prism --demo
-
-# Inspect a specific semantic state
-./gemini-prism --once --demo-state refracting
-./gemini-prism --once --demo-state approval
-./gemini-prism --once --demo-state crystallize
+To uninstall at any time:
+```bash
+./install.sh --uninstall
 ```
 
 ---
 
-## Installation & PATH Setup
+## Using Inside Antigravity (`agy`)
 
-To run `prism` from any directory in your shell:
+When working inside an Antigravity (`agy`) session, you can use these slash commands:
 
-### Option 1: Symlink to user binaries (Recommended)
-```bash
-mkdir -p ~/.local/bin
-ln -s "$(pwd)/bin/prism" ~/.local/bin/prism
-```
-Ensure `~/.local/bin` is in your `$PATH`.
-
-### Option 2: Add directory to PATH
-Add to your `~/.bashrc` or `~/.zshrc`:
-```bash
-export PATH="/path/to/gemini-prism/bin:$PATH"
-```
-
-Once installed, you can simply run:
-```bash
-prism
-prism --once
-prism --mode focus
-```
+| Command | Action |
+| :--- | :--- |
+| **`/prism`** | Renders Prism's current state and crystalline ASCII diamond in the conversation. |
+| **`/focus`** (or `/prism focus`) | Renders the expanded optical telemetry frame with active tool calls and lanes. |
+| **`/tmux`** (or `/prism tmux`) | Splits your tmux window and opens Prism in a side companion pane. |
 
 ---
 
 ## Tmux Integration
 
-### 1. Dedicated Sidebar Pane
-Split your tmux window and run Prism alongside your coding session:
+Prism includes built-in tmux commands:
+
+### 1. Open Companion in Side Pane
 ```bash
-tmux split-window -h -l 36 'prism'
+# Inside tmux: automatically splits pane to the right (35 cols wide)
+prism tmux
 ```
 
-### 2. Tmux Status Line
-Embed Prism's live state in your tmux status bar (`~/.tmux.conf`):
-```tmux
-set -g status-interval 2
-set -g status-right "#(prism --once --plain | grep -o 'Prism.*' | head -n 1) | %H:%M "
+If not currently in tmux, `prism tmux` gives the exact one-liner to launch tmux with Prism side-by-side:
+```bash
+tmux new-session \; split-window -h -l 35 'prism' \; select-pane -L
 ```
+
+### 2. Bind to Tmux Status Bar
+```bash
+prism tmux status
+```
+This automatically configures `status-right` in tmux to display Prism's live state glyph and message in real time.
 
 ---
 
-## Antigravity Plugin Installation
+## CLI Shortcuts & Modes
 
-To enable `cyclops-prism` as an Antigravity plugin:
+You can run `prism` from any terminal:
 
-### Option A: Workspace Plugin (Project-Specific)
-Clone or symlink this repository into your project's `.agents/plugins/`:
 ```bash
-mkdir -p .agents/plugins
-ln -s /path/to/cyclops-prism .agents/plugins/cyclops-prism
+prism              # Live 20 FPS animated companion
+prism focus        # Live companion in expanded telemetry focus mode
+prism once         # Single-frame snapshot (ideal for prompts and scripts)
+prism plain        # Pure ASCII fallback mode (no Unicode glyphs)
+prism demo         # Continuous cycling tour across all operational states
 ```
-
-### Option B: Global Antigravity Registration
-Add the path to `~/.gemini/config/plugins.json`:
-```json
-{
-  "plugins": [
-    {
-      "path": "/path/to/cyclops-prism"
-    }
-  ]
-}
-```
-
-When active, Antigravity automatically calls `scripts/hook.py` on lifecycle events (`PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`), recording sanitized state to `~/.local/state/cyclops-prism/presence/` for `prism` to render.
 
 ---
 

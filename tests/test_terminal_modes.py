@@ -62,6 +62,19 @@ class TestTerminalModes(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("crystallized", proc.stdout)
 
+    def test_cli_subcommands(self):
+        # Test 'once plain' positional sugar
+        cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "once", "plain", "--no-color"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Prism - ready", proc.stdout)
+
+        # Test 'focus once' positional sugar
+        cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "focus", "once", "plain", "--no-color"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Comp: focus", proc.stdout)
+
     def test_terminal_resizing(self):
         state = {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "hover": "Prism · ready"}
         for w, h in [(40, 15), (80, 24), (120, 40)]:

@@ -363,6 +363,52 @@ def get_demo_state(t: float, forced_state: str = None) -> dict:
     }
 
 
+def handle_tmux(subcmd: str = "split") -> None:
+    """Manage Prism inside tmux (split pane, status line, or standalone)."""
+    tmux_bin = shutil.which("tmux")
+    if not tmux_bin:
+        print("Notice: tmux is not found in PATH.")
+        print("To install tmux on Ubuntu/Debian: sudo apt install tmux")
+        sys.exit(1)
+
+    in_tmux = bool(os.environ.get("TMUX"))
+    launcher = shutil.which("prism") or str(Path(__file__).resolve().parent.parent / "bin" / "prism")
+
+    if subcmd == "status":
+        status_expr = f"#({launcher} once --plain | grep -o 'Prism.*' | head -n 1) | %H:%M "
+        subprocess.run([tmux_bin, "set", "-g", "status-interval", "2"], check=False)
+        subprocess.run([tmux_bin, "set", "-g", "status-right", status_expr], check=False)
+        print("✓ Prism status line configured in tmux status-right.")
+        return
+
+    if subcmd in ("split", "open", "launch", ""):
+        if in_tmux:
+            subprocess.run([tmux_bin, "split-window", "-h", "-l", "35", launcher], check=False)
+            print("✓ Prism companion opened in side pane.")
+        else:
+            print("Notice: Not currently inside a tmux session.")
+            print("Start a new tmux session with Prism side-by-side using:")
+            print(f"  tmux new-session \\; split-window -h -l 35 '{launcher}' \\; select-pane -L")
+        return
+
+    if subcmd == "kill":
+        if in_tmux:
+            p = subprocess.run([tmux_bin, "list-panes", "-F", "#{pane_id} #{pane_current_command}"], capture_output=True, text=True)
+            killed = False
+            for line in p.stdout.splitlines():
+                if "prism" in line or "python" in line:
+                    pane_id = line.split()[0]
+                    subprocess.run([tmux_bin, "kill-pane", "-t", pane_id], check=False)
+                    killed = True
+            if killed:
+                print("✓ Prism pane closed.")
+            else:
+                print("No active Prism pane found.")
+        else:
+            print("Not inside tmux.")
+        return
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prism Terminal Presence Observer")
     parser.add_argument("--feed", type=Path, default=None, help="Path to presence feed directory (containing live.json)")
@@ -374,7 +420,28 @@ def main():
     parser.add_argument("--demo-state", choices=["idle", "attending", "refracting", "branching", "approval", "crystallize", "resolved", "ended"], default=None, help="Force demo to specific state")
     parser.add_argument("--calm", action="store_true", help="Slower ambient rotation")
     parser.add_argument("--reduced-motion", action="store_true", help="Disable ring rotation animation")
-    args = parser.parse_args()
+
+    # Positional sugar: prism tmux, prism focus, prism once, prism demo, prism plain
+    raw_args = sys.argv[1:]
+    if raw_args and raw_args[0] == "tmux":
+        subaction = raw_args[1] if len(raw_args) > 1 else "split"
+        handle_tmux(subaction)
+        sys.exit(0)
+
+    normalized_args = []
+    for arg in raw_args:
+        if arg == "focus":
+            normalized_args.extend(["--mode", "focus"])
+        elif arg == "once":
+            normalized_args.append("--once")
+        elif arg == "demo":
+            normalized_args.append("--demo")
+        elif arg == "plain":
+            normalized_args.append("--plain")
+        else:
+            normalized_args.append(arg)
+
+    args = parser.parse_args(normalized_args)
 
     use_color = not (args.no_color or "NO_COLOR" in os.environ)
     unicode_mode = not args.plain
