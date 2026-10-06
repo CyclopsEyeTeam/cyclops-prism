@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# agy-prism - Antigravity CLI companion launcher with Cyclops Prism
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Resolve binaries
+AGY_BIN="${AGY_BIN:-$(command -v agy || echo "$HOME/.local/bin/agy")}"
+PRISM_BIN="${PRISM_BIN:-$(command -v prism || echo "$SCRIPT_DIR/prism")}"
+TMUX_BIN="${TMUX_BIN:-$(command -v tmux || echo "$HOME/.local/bin/tmux")}"
+
+if [ ! -x "$PRISM_BIN" ]; then
+    PRISM_BIN="$SCRIPT_DIR/prism"
+fi
+
+# Filter out companion flags
+FILTERED_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" != "--cyclops-prism" ] && [ "$arg" != "--prism" ]; then
+        FILTERED_ARGS+=("$arg")
+    fi
+done
+
+# If non-interactive (piped, scripts, or dumb terminal), pass straight through to agy
+if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-}" = "dumb" ]; then
+    exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
+fi
+
+# Case 1: Already inside tmux - split current window
+if [ -n "${TMUX:-}" ] && [ -x "$TMUX_BIN" ]; then
+    PANE_ID=$("$TMUX_BIN" split-window -h -l 35 -P -F "#{pane_id}" "$PRISM_BIN" 2>/dev/null || true)
+    if [ -n "$PANE_ID" ]; then
+        "$TMUX_BIN" select-pane -L 2>/dev/null || true
+        cleanup() {
+            "$TMUX_BIN" kill-pane -t "$PANE_ID" 2>/dev/null || true
+        }
+        trap cleanup EXIT INT TERM
+    fi
+    exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
+fi
+
+# Case 2: Tmux available - launch dedicated side-by-side session
+if [ -x "$TMUX_BIN" ]; then
+    SESSION_NAME="agy-prism-$$"
+    RUNNER=$(mktemp "/tmp/agy-prism-run-XXXXXX.sh")
+    chmod 700 "$RUNNER"
+
+    cat << 'EOF' > "$RUNNER"
+#!/usr/bin/env bash
+AGY="$1"
+SESSION="$2"
+RUNNER_FILE="$3"
+shift 3
+"$AGY" "$@"
+EXIT_CODE=$?
+rm -f "$RUNNER_FILE" 2>/dev/null || true
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+exit $EXIT_CODE
+EOF
+
+    exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
+         split-window -h -l 35 "$PRISM_BIN" \; \
+         select-pane -L
+fi
+
+# Case 3: Desktop fallback
+if [ -n "${DISPLAY:-}" ] && command -v gnome-terminal >/dev/null 2>&1; then
+    gnome-terminal --title="Cyclops Prism" --geometry=40x25 -- "$PRISM_BIN" 2>/dev/null &
+    PRISM_PID=$!
+    cleanup_gui() {
+        kill "$PRISM_PID" 2>/dev/null || true
+    }
+    trap cleanup_gui EXIT INT TERM
+    exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
+fi
+
+# Fallback
+exec "$AGY_BIN" "${FILTERED_ARGS[@]}"

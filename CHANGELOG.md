@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0
+
+- **Integrated agy Launcher**: Introduced `agy --cyclops-prism` and `agy-prism` command to launch Antigravity CLI and Prism side-by-side in a split tmux terminal automatically.
+- **Hook Protocol Hardening**: Explicit `--event` parameters passed in `hooks.json` to guarantee strict compliance with Antigravity's Go runtime (`PreToolUse` allow contract, `PostToolUse` empty object contract).
+- **Automated Lifecycle Teardown**: Automatic cleanup of Prism companion panes upon Antigravity session exit.
+- **Enhanced Installer**: Added `install.sh` support for `agy-prism` and shell helper registration in `~/.bashrc`.
+
 ## 1.0.0 (First Public Release)
 
 The standalone terminal companion and Antigravity plugin edition of **Prism**, released under the MIT license.

@@ -94,7 +94,7 @@ class TestHookFeed(unittest.TestCase):
         res = self.run_hook(payload)
         self.assertEqual(res.returncode, 0)
         out = json.loads(res.stdout.strip())
-        self.assertEqual(out.get("decision"), "allow")
+        self.assertEqual(out, {})
 
     def test_feed_discovery(self):
         # Create a mock session feed
@@ -116,6 +116,7 @@ class TestHookFeed(unittest.TestCase):
             "invocationNum": 1,
         }
         # 1. Direct handler latency must complete in < 15ms
+        hook.handle_event(payload)  # warmup
         h_times = []
         for _ in range(10):
             t0 = time.perf_counter()

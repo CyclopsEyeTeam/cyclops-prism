@@ -20,6 +20,22 @@ It visualizes active model thinking and tool execution through a faceted polyhed
 
 ---
 
+## Launching Antigravity with Prism
+
+Launch `agy` directly alongside Prism as a living sidecar companion:
+
+```bash
+# Option 1: Native agy flag
+agy --cyclops-prism
+
+# Option 2: Dedicated command
+agy-prism
+```
+
+This automatically opens Antigravity in your main terminal pane with Prism animated at 20 FPS in a right-hand companion pane (35 cols wide), with focus immediately on your `agy` prompt. When you exit `agy`, the companion pane closes cleanly.
+
+---
+
 ## One-Step Installation
 
 From this directory, run:
@@ -29,8 +45,9 @@ From this directory, run:
 ```
 
 This will automatically:
-1. Link `prism` into `~/.local/bin/prism`.
-2. Register the plugin into Antigravity via `agy plugin install .`.
+1. Link `prism` and `agy-prism` into `~/.local/bin/`.
+2. Configure the `agy --cyclops-prism` helper in `~/.bashrc`.
+3. Register the plugin into Antigravity via `agy plugin install .`.
 
 To uninstall at any time:
 ```bash

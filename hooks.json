@@ -3,14 +3,14 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python3 scripts/hook.py",
+        "command": "python3 scripts/hook.py --event PreInvocation",
         "timeout": 3
       }
     ],
     "PostInvocation": [
       {
         "type": "command",
-        "command": "python3 scripts/hook.py",
+        "command": "python3 scripts/hook.py --event PostInvocation",
         "timeout": 3
       }
     ],
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/hook.py",
+            "command": "python3 scripts/hook.py --event PreToolUse",
             "timeout": 3
           }
         ]
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/hook.py",
+            "command": "python3 scripts/hook.py --event PostToolUse",
             "timeout": 3
           }
         ]
@@ -41,7 +41,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python3 scripts/hook.py",
+        "command": "python3 scripts/hook.py --event Stop",
         "timeout": 3
       }
     ]
