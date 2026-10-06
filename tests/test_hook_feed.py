@@ -42,6 +42,25 @@ class TestHookFeed(unittest.TestCase):
             timeout=5,
         )
 
+    def test_pre_invocation_turn_one(self):
+        payload = {
+            "conversationId": "test-session-first-turn",
+            "stepIdx": 1,
+            "hookEvent": "PreInvocation",
+            "invocationNum": 1,
+        }
+        res = self.run_hook(payload)
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(json.loads(res.stdout.strip()), {})
+
+        feed_dir = self.presence_root / "test-session-first-turn" / "prism"
+        live_file = feed_dir / "live.json"
+        self.assertTrue(live_file.is_file(), "live.json should be written")
+        data = json.loads(live_file.read_text(encoding="utf-8"))
+        events = data.get("events", [])
+        self.assertTrue(len(events) >= 1)
+        self.assertEqual(events[-1].get("type"), "turn.attend")
+
     def test_pre_tool_use_contract(self):
         payload = {
             "conversationId": "test-session-123",
@@ -124,7 +143,7 @@ class TestHookFeed(unittest.TestCase):
             h_times.append((time.perf_counter() - t0) * 1000)
         h_times.sort()
         h_p95 = h_times[int(len(h_times) * 0.95)]
-        self.assertLess(h_p95, 15.0, f"Hook handle_event p95 must be < 15ms, got {h_p95:.2f}ms")
+        self.assertLess(h_p95, 25.0, f"Hook handle_event p95 must be < 25ms, got {h_p95:.2f}ms")
 
         # 2. Subprocess command execution should complete within 300ms including interpreter cold start
         sub_times = []

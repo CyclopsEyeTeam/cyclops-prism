@@ -110,11 +110,9 @@ def adapt_hook_event(
     conv_id = payload.get("conversationId", "")
     step_idx = payload.get("stepIdx", 0)
 
-    # 1. PreInvocation -> session.wake or turn.attend
+    # 1. PreInvocation -> turn.attend
     if hook_event == "PreInvocation":
-        inv_num = payload.get("invocationNum", 1)
-        event_type = "session.wake" if inv_num == 1 else "turn.attend"
-        return {"seq": sequence, "t": stamp, "type": event_type}
+        return {"seq": sequence, "t": stamp, "type": "turn.attend"}
 
     # 2. PreToolUse -> approval.request, branch.start, or refract.start
     elif hook_event == "PreToolUse":
