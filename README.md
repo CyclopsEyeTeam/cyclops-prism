@@ -94,13 +94,13 @@ set -g status-right "#(prism --once --plain | grep -o 'Prism.*' | head -n 1) | %
 
 ## Antigravity Plugin Installation
 
-To enable `gemini-prism` as an Antigravity plugin:
+To enable `cyclops-prism` as an Antigravity plugin:
 
 ### Option A: Workspace Plugin (Project-Specific)
-Symlink or copy this directory into your project's `.agents/plugins/`:
+Clone or symlink this repository into your project's `.agents/plugins/`:
 ```bash
 mkdir -p .agents/plugins
-ln -s /path/to/gemini-prism .agents/plugins/gemini-prism
+ln -s /path/to/cyclops-prism .agents/plugins/cyclops-prism
 ```
 
 ### Option B: Global Antigravity Registration
@@ -109,13 +109,13 @@ Add the path to `~/.gemini/config/plugins.json`:
 {
   "plugins": [
     {
-      "path": "/path/to/gemini-prism"
+      "path": "/path/to/cyclops-prism"
     }
   ]
 }
 ```
 
-When active, Antigravity automatically calls `scripts/hook.py` on lifecycle events (`PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`), recording sanitized state to `~/.local/state/gemini-prism/presence/` for `prism` to render.
+When active, Antigravity automatically calls `scripts/hook.py` on lifecycle events (`PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`), recording sanitized state to `~/.local/state/cyclops-prism/presence/` for `prism` to render.
 
 ---
 
