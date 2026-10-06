@@ -14,7 +14,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue(p_path.is_file(), "plugin.json must exist")
         data = json.loads(p_path.read_text(encoding="utf-8"))
         self.assertEqual(data.get("name"), "cyclops-prism")
-        self.assertEqual(data.get("version"), "1.1.1")
+        self.assertEqual(data.get("version"), "1.1.2")
         self.assertIn("hooks", data)
         self.assertIn("interface", data)
 
@@ -54,7 +54,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue(os.access(install_sh, os.X_OK), "install.sh must be executable")
 
     def test_executable_permissions(self):
-        for script_rel in ["gemini-prism", "bin/prism", "bin/agy-prism", "install.sh", "scripts/hook.py", "scripts/terminal.py"]:
+        for script_rel in ["gemini-prism", "bin/prism", "bin/agy-prism", "bin/agy-prismtop", "install.sh", "scripts/hook.py", "scripts/terminal.py"]:
             p = PLUGIN_ROOT / script_rel
             self.assertTrue(p.is_file(), f"{script_rel} must exist")
             self.assertTrue(os.access(p, os.X_OK), f"{script_rel} must have execute permissions")

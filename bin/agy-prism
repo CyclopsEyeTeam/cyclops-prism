@@ -19,10 +19,20 @@ if [ ! -x "$PRISM_BIN" ]; then
     PRISM_BIN="$SCRIPT_DIR/prism"
 fi
 
-# Filter out companion flags
+# Filter out companion flags and detect layout (side vs top)
 FILTERED_ARGS=()
+LAYOUT="side"
+CALL_NAME="$(basename "${BASH_SOURCE[0]}")"
+if [[ "$CALL_NAME" == *"prismtop"* ]]; then
+    LAYOUT="top"
+fi
+
 for arg in "$@"; do
-    if [ "$arg" != "--cyclops-prism" ] && [ "$arg" != "--prism" ]; then
+    if [ "$arg" = "--prismtop" ] || [ "$arg" = "--cyclops-prismtop" ]; then
+        LAYOUT="top"
+    elif [ "$arg" = "--prism" ] || [ "$arg" = "--cyclops-prism" ]; then
+        LAYOUT="side"
+    else
         FILTERED_ARGS+=("$arg")
     fi
 done
@@ -37,18 +47,29 @@ PRISM_CMD="$PRISM_BIN"
 
 # Case 1: Already inside tmux - split current window
 if [ -n "${TMUX:-}" ] && [ -x "$TMUX_BIN" ]; then
-    PANE_ID=$("$TMUX_BIN" split-window -h -l 35 -P -F "#{pane_id}" "$PRISM_CMD" 2>/dev/null || true)
-    if [ -n "$PANE_ID" ]; then
-        "$TMUX_BIN" select-pane -L 2>/dev/null || true
-        cleanup() {
-            "$TMUX_BIN" kill-pane -t "$PANE_ID" 2>/dev/null || true
-        }
-        trap cleanup EXIT INT TERM
+    if [ "$LAYOUT" = "top" ]; then
+        PANE_ID=$("$TMUX_BIN" split-window -b -v -l 14 -P -F "#{pane_id}" "$PRISM_CMD" 2>/dev/null || true)
+        if [ -n "$PANE_ID" ]; then
+            "$TMUX_BIN" select-pane -D 2>/dev/null || true
+            cleanup() {
+                "$TMUX_BIN" kill-pane -t "$PANE_ID" 2>/dev/null || true
+            }
+            trap cleanup EXIT INT TERM
+        fi
+    else
+        PANE_ID=$("$TMUX_BIN" split-window -h -l 35 -P -F "#{pane_id}" "$PRISM_CMD" 2>/dev/null || true)
+        if [ -n "$PANE_ID" ]; then
+            "$TMUX_BIN" select-pane -L 2>/dev/null || true
+            cleanup() {
+                "$TMUX_BIN" kill-pane -t "$PANE_ID" 2>/dev/null || true
+            }
+            trap cleanup EXIT INT TERM
+        fi
     fi
     exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
 fi
 
-# Case 2: Tmux available - launch dedicated side-by-side session
+# Case 2: Tmux available - launch dedicated side-by-side or top-and-bottom session
 if [ -x "$TMUX_BIN" ]; then
     SESSION_NAME="agy-prism-$$"
     RUNNER=$(mktemp "/tmp/agy-prism-run-XXXXXX.sh")
@@ -67,14 +88,24 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 exit $EXIT_CODE
 EOF
 
-    exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
-         split-window -h -l 35 "$PRISM_CMD" \; \
-         select-pane -L
+    if [ "$LAYOUT" = "top" ]; then
+        exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
+             split-window -b -v -l 14 "$PRISM_CMD" \; \
+             select-pane -D
+    else
+        exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
+             split-window -h -l 35 "$PRISM_CMD" \; \
+             select-pane -L
+    fi
 fi
 
 # Case 3: Desktop fallback
 if [ -n "${DISPLAY:-}" ] && command -v gnome-terminal >/dev/null 2>&1; then
-    gnome-terminal --title="Cyclops Prism" --geometry=40x25 -- "$PRISM_BIN" 2>/dev/null &
+    GEOM="40x25"
+    if [ "$LAYOUT" = "top" ]; then
+        GEOM="100x14"
+    fi
+    gnome-terminal --title="Cyclops Prism" --geometry="$GEOM" -- "$PRISM_BIN" 2>/dev/null &
     PRISM_PID=$!
     cleanup_gui() {
         kill "$PRISM_PID" 2>/dev/null || true

@@ -47,23 +47,25 @@ Navigate to any working directory or project of your choice and launch Antigravi
 # Navigate to your project directory
 cd /path/to/your/project
 
-# Launch Antigravity with Prism side-by-side:
-agy --cyclops-prism
+# Side View: Antigravity with Prism companion on the right
+agy --prism
+# (or shorthand: agy-prism)
 
-# Or using the shorthand command:
-agy-prism
+# Top View: Wide crystalline companion banner on top of Antigravity
+agy --prismtop
+# (or shorthand: agy-prismtop)
 ```
 
-Antigravity will open in your main terminal pane with Prism running live in a companion pane on the right. Your focus is placed immediately on the `agy` prompt, and the companion closes cleanly when you exit.
+Antigravity will open in your active pane with Prism running live in its companion pane. Your focus is placed immediately on the `agy` prompt, and the companion closes cleanly when you exit.
 
 ---
 
 ## Features
 
-- **Side-by-Side Terminal Companion**: Seamlessly splits your terminal window in tmux or terminal multiplexers with zero manual configuration.
+- **Flexible Companion Layouts**: Supports both **Side View** (`agy --prism`, companion pane on the right) and **Top View** (`agy --prismtop`, wide banner companion on top).
+- **Flicker-Free 20 FPS Telemetry**: Smooth ANSI Truecolor & ASCII renderer with in-place redraw and automatic session discovery.
 - **Real-Time Lifecycle Hooks**: Connects directly to Antigravity's Go runtime (`PreInvocation`, `PostInvocation`, `PostToolUse`, `Stop`) with fail-open safety (< 15ms latency). Never gates or auto-approves tool executions.
-- **Responsive Dynamic Terminal Canvas**: Polarized rings and crystalline geometry dynamically scale to any terminal size, featuring a multi-tier adaptive jewel core with nested facets on large and fullscreen windows.
-- **Living 20 FPS Telemetry**: Animated Truecolor ANSI & ASCII renderer with automatic session discovery.
+- **Responsive Dynamic Terminal Canvas**: Polarized rings and crystalline geometry dynamically scale to any terminal size and aspect ratio, with adaptive jewel cores tailored for compact top banners as well as expanded full-screen panes.
 - **Dual Visual Modes**:
   - `balanced` (default): Compact diamond core with polarized light rings and status banner.
   - `focus`: Expanded optical geometry with real-time tool counts, branch counts, and lane diagnostics.
@@ -76,14 +78,16 @@ Antigravity will open in your main terminal pane with Prism running live in a co
 
 ### Launching Antigravity
 
-Pass any standard `agy` arguments directly through the companion launcher:
+Pass any standard `agy` arguments directly through either companion layout:
 
 ```bash
-# Continue previous conversation with Prism
-agy --cyclops-prism -c
+# Side View (companion pane on right)
+agy --prism -c
+# Or: agy-prism -c
 
-# Specify model and effort level
-agy --cyclops-prism --model gemini-2.5-pro --effort high
+# Top View (companion banner on top)
+agy --prismtop --model gemini-2.5-pro
+# Or: agy-prismtop --model gemini-2.5-pro
 ```
 
 ### Standalone Companion Modes
@@ -91,12 +95,12 @@ agy --cyclops-prism --model gemini-2.5-pro --effort high
 You can also run `prism` independently from any terminal:
 
 ```bash
-prism              # Live 20 FPS animated companion (auto-attaches to active session)
-prism focus        # Expanded optical geometry with tool lanes and branch meters
-prism tmux         # Dock Prism into a tmux split pane or statusbar
-prism once         # Single-frame snapshot (ideal for prompts and status lines)
-prism plain        # Pure ASCII mode (for terminals without Unicode support)
-prism demo         # Continuous animated tour across all operational states
+prism                   # Live 20 FPS animated companion (auto-attaches to active session)
+prism focus             # Expanded optical geometry with tool lanes and branch meters
+prism tmux [side|top]   # Dock Prism into a tmux split pane (side or top)
+prism once              # Single-frame snapshot (ideal for prompts and status lines)
+prism plain             # Pure ASCII mode (for terminals without Unicode support)
+prism demo              # Continuous animated tour across all operational states
 ```
 
 ---

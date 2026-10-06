@@ -15,6 +15,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     rm -f "${BIN_DIR}/prism"
     rm -f "${BIN_DIR}/gemini-prism"
     rm -f "${BIN_DIR}/agy-prism"
+    rm -f "${BIN_DIR}/agy-prismtop"
     if [ -f "${HOME}/.bashrc" ]; then
         sed -i '/# Antigravity Cyclops Prism companion launcher/,/}/d' "${HOME}/.bashrc" 2>/dev/null || true
     fi
@@ -34,23 +35,33 @@ echo "Installing CLI launchers to ${BIN_DIR}..."
 ln -sf "${SCRIPT_DIR}/bin/prism" "${BIN_DIR}/prism"
 ln -sf "${SCRIPT_DIR}/gemini-prism" "${BIN_DIR}/gemini-prism"
 ln -sf "${SCRIPT_DIR}/bin/agy-prism" "${BIN_DIR}/agy-prism"
-chmod +x "${SCRIPT_DIR}/bin/prism" "${SCRIPT_DIR}/gemini-prism" "${SCRIPT_DIR}/bin/agy-prism"
+ln -sf "${SCRIPT_DIR}/bin/agy-prismtop" "${BIN_DIR}/agy-prismtop"
+chmod +x "${SCRIPT_DIR}/bin/prism" "${SCRIPT_DIR}/gemini-prism" "${SCRIPT_DIR}/bin/agy-prism" "${SCRIPT_DIR}/bin/agy-prismtop"
 
-# 3. Add shell function to ~/.bashrc if not already present
-if [ -f "${HOME}/.bashrc" ] && ! grep -q "agy-prism" "${HOME}/.bashrc"; then
-    echo "Configuring 'agy --cyclops-prism' helper in ~/.bashrc..."
+# 3. Add shell function to ~/.bashrc
+if [ -f "${HOME}/.bashrc" ]; then
+    # Remove older variant if present to keep bashrc clean
+    sed -i '/# Antigravity Cyclops Prism companion launcher/,/}/d' "${HOME}/.bashrc" 2>/dev/null || true
+    echo "Configuring 'agy --prism' & 'agy --prismtop' helpers in ~/.bashrc..."
     cat << 'EOF' >> "${HOME}/.bashrc"
 
 # Antigravity Cyclops Prism companion launcher
 agy() {
     local use_prism=0
+    local prism_top=0
     for arg in "$@"; do
-        if [ "$arg" = "--cyclops-prism" ] || [ "$arg" = "--prism" ]; then
+        if [ "$arg" = "--prismtop" ] || [ "$arg" = "--cyclops-prismtop" ]; then
+            prism_top=1
+            use_prism=1
+            break
+        elif [ "$arg" = "--prism" ] || [ "$arg" = "--cyclops-prism" ]; then
             use_prism=1
             break
         fi
     done
-    if [ "$use_prism" -eq 1 ]; then
+    if [ "$prism_top" -eq 1 ]; then
+        agy-prismtop "$@"
+    elif [ "$use_prism" -eq 1 ]; then
         agy-prism "$@"
     else
         command agy "$@"
@@ -83,12 +94,14 @@ echo "✓ Cyclops Prism installed successfully!"
 echo "=========================================="
 echo ""
 echo "Launch Antigravity alongside Prism:"
-echo "  agy --cyclops-prism  - Launch agy with Prism side-by-side"
-echo "  agy-prism            - Direct alias to launch agy + Prism"
+echo "  agy --prism        - Side view (split companion pane on right)"
+echo "  agy --prismtop     - Top view (wide companion banner on top)"
+echo "  agy-prism          - Shorthand alias for side view"
+echo "  agy-prismtop       - Shorthand alias for top view"
 echo ""
 echo "Commands in Terminal / Tmux:"
 echo "  prism                - Live 20 FPS animated companion"
 echo "  prism focus          - Expanded telemetry view"
-echo "  prism tmux           - Split tmux window with Prism"
+echo "  prism tmux [side|top]- Split tmux window with Prism (side or top)"
 echo "  prism once           - Single snapshot for prompt / statusbar"
 echo ""

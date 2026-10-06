@@ -84,6 +84,25 @@ class TestTerminalModes(unittest.TestCase):
             for line in lines:
                 self.assertEqual(len(terminal._strip_colors(line)), w)
 
+    def test_top_compact_bounds(self):
+        state = {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "hover": "Prism · ready"}
+        for h in [10, 12, 14, 16]:
+            frame = terminal.render_prism_frame(state, 100, h, t=0.0)
+            lines = frame.split("\n")
+            self.assertEqual(len(lines), h)
+            stripped = terminal._strip_colors(frame)
+            # Ensure status line is intact
+            self.assertIn("Prism · ready", stripped)
+            # Ensure Level 1 core is used for compact heights
+            self.assertIn("⟨ ⟐ ⟩", stripped)
+
+    def test_tmux_subcommands(self):
+        # Outside tmux, should print notice with top or side instructions without crashing
+        cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "tmux", "top"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Notice: Not currently inside a tmux session", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

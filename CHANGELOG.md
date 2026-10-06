@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2 - Top View Layout & Flicker-Free Telemetry
+
+- **Top View Companion Layout (`agy --prismtop` / `agy-prismtop`)**: Added support for launching Prism in a wide companion banner at the top of Antigravity (`split-window -b -v -l 14`) with automatic cursor focus placed directly into `agy` below.
+- **Side View Option (`agy --prism` / `agy-prism`)**: Preserved the vertical side-by-side companion split (`split-window -h -l 35`) on the right.
+- **Flicker-Free In-Place Redraw**: Eliminated screen clearing (`\033[J`) on 20 FPS ticks, resolving rapid terminal flashing / jumping. The terminal now overwrites in-place via cursor home (`\033[H`), only clearing on initial startup or terminal resize (`SIGWINCH`).
+- **Compact Height Bounds Clamping**: Clamped polarized ring radii (`max_ry`) and core level selections to guarantee that Prism never collides with status banners or screen edges in compact top panes (10–14 rows).
+
 ## 1.1.1 - Critical Safety & Usability Release
 
 - **Pure Observer Hook Architecture (Critical Security Fix)**: Completely removed the `PreToolUse` hook registration from `hooks.json`. In Antigravity's runtime, `PreToolUse` functions as an authorization gate rather than a passive observer; removing it ensures Prism never auto-approves tool executions, fully preserving interactive user authorization prompts and security boundaries.

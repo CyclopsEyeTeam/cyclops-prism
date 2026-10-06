@@ -168,14 +168,17 @@ def render_prism_frame(
 
     is_focus = mode == "focus"
     # Responsive geometry scaling: dynamically fills available terminal canvas
+    hud_y = height - 2
+    max_ry = max(2, hud_y - cy - 2)
+
     base_rx = max(11, min(int(width * 0.36), 46))
-    base_ry = max(4, min(int(height * 0.28), 16))
+    base_ry = max(2, min(int(height * 0.28), max_ry, 16))
     if not is_focus:
         ring_radius_x = max(11, int(base_rx * 0.90))
-        ring_radius_y = max(4, int(base_ry * 0.90))
+        ring_radius_y = max(2, min(int(base_ry * 0.90), max_ry))
     else:
         ring_radius_x = base_rx
-        ring_radius_y = base_ry
+        ring_radius_y = min(base_ry, max_ry)
 
     # Density of polarized ring steps scales with radius so rings stay smooth and continuous
     steps = max(24, int(ring_radius_x * 2.8))
@@ -226,9 +229,9 @@ def render_prism_frame(
             grid.put(bx, by, g_sat, C_VIOLET)
 
     # 4. Central Faceted Core
-    if ring_radius_x >= 24 and ring_radius_y >= 9:
+    if ring_radius_x >= 24 and ring_radius_y >= 9 and height >= 28:
         core_level = 3
-    elif ring_radius_x >= 16 and ring_radius_y >= 6:
+    elif ring_radius_x >= 16 and ring_radius_y >= 6 and height >= 20:
         core_level = 2
     else:
         core_level = 1
@@ -433,9 +436,21 @@ def handle_tmux(subcmd: str = "split") -> None:
         print("✓ Prism status line configured in tmux status-right.")
         return
 
-    if subcmd in ("split", "open", "launch", ""):
+    if subcmd in ("top", "prismtop"):
+        if in_tmux:
+            subprocess.run([tmux_bin, "split-window", "-b", "-v", "-l", "14", launcher], check=False)
+            subprocess.run([tmux_bin, "select-pane", "-D"], check=False)
+            print("✓ Prism companion opened in top pane.")
+        else:
+            print("Notice: Not currently inside a tmux session.")
+            print("Start a new tmux session with Prism on top using:")
+            print(f"  tmux new-session \\; split-window -b -v -l 14 '{launcher}' \\; select-pane -D")
+        return
+
+    if subcmd in ("split", "side", "open", "launch", ""):
         if in_tmux:
             subprocess.run([tmux_bin, "split-window", "-h", "-l", "35", launcher], check=False)
+            subprocess.run([tmux_bin, "select-pane", "-L"], check=False)
             print("✓ Prism companion opened in side pane.")
         else:
             print("Notice: Not currently inside a tmux session.")
@@ -542,6 +557,7 @@ def main():
 
     try:
         t0 = time.time()
+        prev_size = None
         while True:
             t = time.time() - t0
             cols, rows = shutil.get_terminal_size((80, 24))
@@ -569,8 +585,12 @@ def main():
                 calm=args.calm,
             )
 
-            # Move cursor to home and redraw
-            sys.stdout.write("\033[H\033[J" + frame)
+            # Move cursor to home and redraw (clean in-place overwrite; clear on resize/start only)
+            if (cols, rows) != prev_size:
+                prev_size = (cols, rows)
+                sys.stdout.write("\033[2J\033[H" + frame)
+            else:
+                sys.stdout.write("\033[H" + frame)
             sys.stdout.flush()
             time.sleep(0.05)
     except (KeyboardInterrupt, SystemExit):
