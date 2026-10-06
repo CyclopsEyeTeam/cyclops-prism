@@ -52,7 +52,7 @@ class TestHookFeed(unittest.TestCase):
         res = self.run_hook(payload)
         self.assertEqual(res.returncode, 0)
         out = json.loads(res.stdout.strip())
-        self.assertEqual(out.get("decision"), "allow")
+        self.assertEqual(out, {})
 
         # Verify feed was generated
         feed_dir = self.presence_root / "test-session-123" / "prism"

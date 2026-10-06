@@ -32,9 +32,18 @@ if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-}" = "dumb" ]; then
     exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
 fi
 
+# Check if --link is requested
+PRISM_CMD="$PRISM_BIN"
+for arg in "$@"; do
+    if [ "$arg" = "--link" ]; then
+        PRISM_CMD="$PRISM_BIN --link"
+        break
+    fi
+done
+
 # Case 1: Already inside tmux - split current window
 if [ -n "${TMUX:-}" ] && [ -x "$TMUX_BIN" ]; then
-    PANE_ID=$("$TMUX_BIN" split-window -h -l 35 -P -F "#{pane_id}" "$PRISM_BIN" 2>/dev/null || true)
+    PANE_ID=$("$TMUX_BIN" split-window -h -l 35 -P -F "#{pane_id}" "$PRISM_CMD" 2>/dev/null || true)
     if [ -n "$PANE_ID" ]; then
         "$TMUX_BIN" select-pane -L 2>/dev/null || true
         cleanup() {
@@ -65,7 +74,7 @@ exit $EXIT_CODE
 EOF
 
     exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
-         split-window -h -l 35 "$PRISM_BIN" \; \
+         split-window -h -l 35 "$PRISM_CMD" \; \
          select-pane -L
 fi
 

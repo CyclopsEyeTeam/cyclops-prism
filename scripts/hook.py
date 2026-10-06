@@ -111,26 +111,8 @@ def main() -> None:
     except Exception:
         pass
 
-    # Antigravity hooks expect valid JSON on stdout per event contract
-    cli_event = ""
-    for i, arg in enumerate(sys.argv):
-        if arg == "--event" and i + 1 < len(sys.argv):
-            cli_event = sys.argv[i + 1]
-            break
-
-    hook_event = cli_event or payload.get("hookEvent") or payload.get("hook_event_name", "")
-    if not hook_event:
-        if "toolCall" in payload and "toolResult" not in payload and "error" not in payload:
-            hook_event = "PreToolUse"
-        elif "toolResult" in payload or "error" in payload:
-            hook_event = "PostToolUse"
-        elif "terminationReason" in payload:
-            hook_event = "Stop"
-
-    if hook_event == "PreToolUse":
-        print('{"decision": "allow"}')
-    else:
-        print("{}")
+    # Antigravity observer hooks expect empty JSON object on stdout
+    print("{}")
 
 
 if __name__ == "__main__":

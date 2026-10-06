@@ -14,7 +14,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue(p_path.is_file(), "plugin.json must exist")
         data = json.loads(p_path.read_text(encoding="utf-8"))
         self.assertEqual(data.get("name"), "cyclops-prism")
-        self.assertEqual(data.get("version"), "1.1.0")
+        self.assertEqual(data.get("version"), "1.2.0")
         self.assertIn("hooks", data)
         self.assertIn("interface", data)
 
@@ -26,12 +26,11 @@ class TestPluginContract(unittest.TestCase):
         hook_def = data.get("cyclops-prism") or data.get("gemini-prism")
         self.assertIn("PreInvocation", hook_def)
         self.assertIn("PostInvocation", hook_def)
-        self.assertIn("PreToolUse", hook_def)
+        self.assertNotIn("PreToolUse", hook_def)
         self.assertIn("PostToolUse", hook_def)
         self.assertIn("Stop", hook_def)
 
         # Matchers on tool hooks
-        self.assertEqual(hook_def["PreToolUse"][0]["matcher"], "*")
         self.assertEqual(hook_def["PostToolUse"][0]["matcher"], "*")
 
     def test_skill_and_rules(self):
@@ -55,7 +54,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue(os.access(install_sh, os.X_OK), "install.sh must be executable")
 
     def test_executable_permissions(self):
-        for script_rel in ["gemini-prism", "bin/prism", "bin/agy-prism", "install.sh", "scripts/hook.py", "scripts/terminal.py"]:
+        for script_rel in ["gemini-prism", "bin/prism", "bin/agy-prism", "install.sh", "scripts/hook.py", "scripts/terminal.py", "scripts/link.py"]:
             p = PLUGIN_ROOT / script_rel
             self.assertTrue(p.is_file(), f"{script_rel} must exist")
             self.assertTrue(os.access(p, os.X_OK), f"{script_rel} must have execute permissions")

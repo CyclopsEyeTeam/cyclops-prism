@@ -22,18 +22,7 @@ def resolve_target(environ: Optional[Dict[str, str]] = None, payload: Optional[D
     env = os.environ if environ is None else environ
     home = env.get("HOME", "/tmp")
 
-    # 1. Cyclops Studio environment
-    cyclops_session = env.get("CYCLOPS_SESSION_ID")
-    if isinstance(cyclops_session, str) and feed_state.SESSION_ID.fullmatch(cyclops_session):
-        override = env.get("CYCLOPS_PRESENCE_ROOT")
-        if override:
-            root = Path(override)
-        else:
-            state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
-            root = state_home / "cyclops-presence"
-        return root, cyclops_session
-
-    # 2. Antigravity conversationId from hook payload
+    # 1. Antigravity conversationId from hook payload
     session_id = "default"
     if isinstance(payload, dict):
         conv_id = payload.get("conversationId")

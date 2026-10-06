@@ -96,6 +96,28 @@ prism tmux         # Dock Prism into a tmux split pane or statusbar
 prism once         # Single-frame snapshot (ideal for prompts and status lines)
 prism plain        # Pure ASCII mode (for terminals without Unicode support)
 prism demo         # Continuous animated tour across all operational states
+prism --link       # Enable Cyclops Link v1 peer presence
+```
+
+---
+
+## Cyclops Link v1
+
+> **Link (off by default).** With `link` on, Prism writes one small file about her state (no prompts, commands, paths or names) to `~/.local/state/cyclops-link/`. She reads the files of Spark, Keeper or Prism, if they are installed and linked, so the presences in the same project folder can see each other.
+
+Prism implements the shared local peer presence protocol:
+- **Zero-Dependency & Offline**: Operates purely through atomic JSON files in `${CYCLOPS_LINK_DIR:-~/.local/state/cyclops-link}/`. No servers, no network, and no shared code.
+- **Fixed Triangle Geometry**:
+  - Prism: 90° (Top / North)
+  - Spark (Claude Code): 210° (Lower-Left mark: `✶`)
+  - Keeper (Codex): 330° (Lower-Right mark: `⬡`)
+- **Real-Time Handoff Threads**: Dynamically renders connecting filaments when Prism reaches out to another presence (e.g. running Claude or Codex) or when a peer presence reaches Prism.
+
+To launch with Cyclops Link enabled:
+```bash
+agy --cyclops-prism --link
+# or
+prism --link
 ```
 
 ---

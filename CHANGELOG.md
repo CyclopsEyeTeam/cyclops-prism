@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- **Cyclops Link v1 Implementation**: Added decentralized local peer presence protocol (`scripts/link.py`), allowing Spark (Claude Code), Keeper (Codex), and Prism (Antigravity) to observe each other's status and render real-time handoff threads.
+- **Pure Observer Hook Architecture**: Completely removed `PreToolUse` gating hook to guarantee that Prism never acts as an authorization gate or bypasses user tool approval prompts. All lifecycle hooks now run as purely non-interfering observers.
+- **Decoupled from Studio**: Removed all legacy `CYCLOPS_SESSION_ID` and `CYCLOPS_PRESENCE_ROOT` environment hooks, aligning Prism's clean standalone architecture with Spark and Keeper.
+
 ## 1.1.0
 
 - **Integrated agy Launcher**: Introduced `agy --cyclops-prism` and `agy-prism` command to launch Antigravity CLI and Prism side-by-side in a split tmux terminal automatically.
