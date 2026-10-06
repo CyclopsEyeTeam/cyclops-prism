@@ -29,11 +29,6 @@ try:
 except ImportError:
     presence_feed = None
 
-try:
-    import link
-except ImportError:
-    link = None
-
 # Truecolor RGB escape sequences
 C_RESET = "\033[0m"
 C_CYAN = "\033[38;2;0;242;254m"      # Hyper-cyan (#00F2FE)
@@ -108,8 +103,6 @@ def render_prism_frame(
     use_color: bool = True,
     reduced_motion: bool = False,
     calm: bool = False,
-    peers: Optional[list] = None,
-    link_enabled: bool = False,
 ) -> str:
     """Render one complete ASCII/ANSI terminal frame for Prism."""
     grid = TerminalGrid(width, height, use_color=use_color)
@@ -295,60 +288,11 @@ def render_prism_frame(
         grid.put(cx, cy + 1, dn, core_col)
         grid.put(cx, cy, g_core, C_WHITE if offer else core_col)
 
-    # 5. Cyclops Link: Peer Presence & Handoff Threads
-    spark_peer = None
-    keeper_peer = None
-    if link_enabled and width >= 44 and height >= 12:
-        spark_peer = next((p for p in (peers or []) if p.get("presence") == "spark"), None)
-        keeper_peer = next((p for p in (peers or []) if p.get("presence") == "keeper"), None)
-
-        spark_x = max(2, cx - 18)
-        spark_y = min(height - 4, cy + 5)
-        keeper_x = min(width - 15, cx + 18)
-        keeper_y = min(height - 4, cy + 5)
-
-        thread_char = "╌" if unicode_mode else "-"
-
-        if spark_peer:
-            sp_st = spark_peer.get("state", "idle")
-            sp_mark = "✶" if unicode_mode else "*"
-            grid.put(spark_x, spark_y, sp_mark, C_GOLD)
-            grid.put_str(spark_x + 2, spark_y, f"Spark [{sp_st}]", C_GOLD)
-
-            # Handoff Thread
-            reaching_spark = "spark" in state_data.get("reaching", [])
-            spark_reaching_prism = "prism" in spark_peer.get("reaching", [])
-            if reaching_spark or spark_reaching_prism:
-                for step_x in range(spark_x + 8, cx - 3):
-                    grid.put(step_x, spark_y - (cx - step_x) // 5, thread_char, C_AMBER)
-
-        if keeper_peer:
-            kp_st = keeper_peer.get("state", "idle")
-            kp_mark = "⬡" if unicode_mode else "#"
-            grid.put(keeper_x, keeper_y, kp_mark, C_TEAL)
-            grid.put_str(keeper_x + 2, keeper_y, f"Keeper [{kp_st}]", C_TEAL)
-
-            # Handoff Thread
-            reaching_keeper = "keeper" in state_data.get("reaching", [])
-            keeper_reaching_prism = "prism" in keeper_peer.get("reaching", [])
-            if reaching_keeper or keeper_reaching_prism:
-                for step_x in range(cx + 4, keeper_x):
-                    grid.put(step_x, keeper_y - (step_x - cx) // 5, thread_char, C_TEAL)
-
-    # 6. Status Banner
+    # 5. Status Banner
     hud_y = height - 2
     display_hover = hover if unicode_mode else hover.replace("·", "-")
     status_bar = f" {g_core}  {display_hover} "
     grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, core_col)
-
-    if link_enabled and (spark_peer or keeper_peer):
-        peer_tags = []
-        if spark_peer:
-            peer_tags.append(f"✶ Spark [{spark_peer.get('state', 'idle')}]" if unicode_mode else f"* Spark [{spark_peer.get('state', 'idle')}]")
-        if keeper_peer:
-            peer_tags.append(f"⬡ Keeper [{keeper_peer.get('state', 'idle')}]" if unicode_mode else f"# Keeper [{keeper_peer.get('state', 'idle')}]")
-        link_str = "Link: " + "  ".join(peer_tags)
-        grid.put_str(max(1, (width - len(link_str)) // 2), hud_y - 1, link_str, C_DIM)
 
     if is_focus:
         sub_info = f"Calls: {active_calls}  Branches: {active_branches}  Offer: {offer or 'none'}  Comp: {mode}"
@@ -528,10 +472,8 @@ def main():
     parser.add_argument("--demo-state", choices=["idle", "attending", "refracting", "branching", "approval", "crystallize", "resolved", "ended"], default=None, help="Force demo to specific state")
     parser.add_argument("--calm", action="store_true", help="Slower ambient rotation")
     parser.add_argument("--reduced-motion", action="store_true", help="Disable ring rotation animation")
-    parser.add_argument("--link", action="store_true", help="Enable Cyclops Link v1 peer presence")
-    parser.add_argument("--link-everywhere", action="store_true", help="Observe peers across all rooms, not just local project")
 
-    # Positional sugar: prism tmux, prism focus, prism once, prism demo, prism plain, prism link
+    # Positional sugar: prism tmux, prism focus, prism once, prism demo, prism plain
     raw_args = sys.argv[1:]
     if raw_args and raw_args[0] == "tmux":
         subaction = raw_args[1] if len(raw_args) > 1 else "split"
@@ -548,8 +490,6 @@ def main():
             normalized_args.append("--demo")
         elif arg == "plain":
             normalized_args.append("--plain")
-        elif arg == "link":
-            normalized_args.append("--link")
         else:
             normalized_args.append(arg)
 
@@ -557,15 +497,11 @@ def main():
 
     use_color = not (args.no_color or "NO_COLOR" in os.environ)
     unicode_mode = not args.plain
-    link_enabled = args.link or (link.is_link_enabled() if link else False)
 
-    # Resolve feed path and session identity
+    # Resolve feed path
     feed_dir = args.feed
     if not feed_dir and not args.demo and not args.demo_state and presence_feed:
         feed_dir = presence_feed.find_active_feed()
-
-    session_id = feed_dir.parent.name if (feed_dir and feed_dir.parent) else "standalone"
-    peer_reader = link.PeerLinkReader() if (link_enabled and link) else None
 
     # One-shot rendering (--once)
     if args.once:
@@ -577,8 +513,6 @@ def main():
         else:
             state = get_demo_state(0.0, forced_state="idle")
 
-        peers = peer_reader.read_peers(session_id, everywhere=args.link_everywhere, link_enabled=True) if peer_reader else []
-
         frame = render_prism_frame(
             state,
             cols,
@@ -589,16 +523,12 @@ def main():
             use_color=use_color,
             reduced_motion=args.reduced_motion,
             calm=args.calm,
-            peers=peers,
-            link_enabled=link_enabled,
         )
         print(frame)
         sys.exit(0)
 
     # Interactive live animation loop
     def restore_and_exit(signum=None, frame=None):
-        if link_enabled and link:
-            link.clean_link_file(session_id)
         sys.stdout.write("\033[?25h\033[0m\n")  # Show cursor, reset color
         sys.stdout.flush()
         sys.exit(0)
@@ -610,7 +540,6 @@ def main():
     sys.stdout.write("\033[?25l")
     sys.stdout.flush()
 
-    last_link_write = -1.0
     try:
         t0 = time.time()
         while True:
@@ -628,21 +557,6 @@ def main():
             else:
                 state = get_demo_state(t, forced_state="idle")
 
-            peers = []
-            if link_enabled and link and peer_reader:
-                peers = peer_reader.read_peers(session_id, everywhere=args.link_everywhere, link_enabled=True)
-                if t - last_link_write >= 2.0:
-                    last_link_write = t
-                    link.write_link_file(
-                        session_id,
-                        state.get("mode", "idle"),
-                        tools=state.get("activeCalls", 0),
-                        branches=state.get("activeBranches", 0),
-                        reaching=state.get("reaching", []),
-                        ended=state.get("ended", False),
-                        link_enabled=True,
-                    )
-
             frame = render_prism_frame(
                 state,
                 cols,
@@ -653,8 +567,6 @@ def main():
                 use_color=use_color,
                 reduced_motion=args.reduced_motion,
                 calm=args.calm,
-                peers=peers,
-                link_enabled=link_enabled,
             )
 
             # Move cursor to home and redraw

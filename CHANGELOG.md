@@ -1,10 +1,11 @@
 # Changelog
 
-## 1.2.0
+## 1.1.1 - Critical Safety & Usability Release
 
-- **Cyclops Link v1 Implementation**: Added decentralized local peer presence protocol (`scripts/link.py`), allowing Spark (Claude Code), Keeper (Codex), and Prism (Antigravity) to observe each other's status and render real-time handoff threads.
-- **Pure Observer Hook Architecture**: Completely removed `PreToolUse` gating hook to guarantee that Prism never acts as an authorization gate or bypasses user tool approval prompts. All lifecycle hooks now run as purely non-interfering observers.
-- **Decoupled from Studio**: Removed all legacy `CYCLOPS_SESSION_ID` and `CYCLOPS_PRESENCE_ROOT` environment hooks, aligning Prism's clean standalone architecture with Spark and Keeper.
+- **Pure Observer Hook Architecture (Critical Security Fix)**: Completely removed the `PreToolUse` hook registration from `hooks.json`. In Antigravity's runtime, `PreToolUse` functions as an authorization gate rather than a passive observer; removing it ensures Prism never auto-approves tool executions, fully preserving interactive user authorization prompts and security boundaries.
+- **Decoupled from Studio Wiring**: Removed all legacy `CYCLOPS_SESSION_ID` and `CYCLOPS_PRESENCE_ROOT` environment hooks, aligning Prism's clean standalone architecture with Spark and Keeper.
+- **Responsive Dynamic Terminal Canvas**: Polarized rings and crystalline geometry dynamically scale to any terminal size (from compact split panes up to 95+ column fullscreen windows), featuring a 3-tier adaptive jewel core with nested facets.
+- **Protocol Harmonization**: Held Cyclops Link implementation pending final frozen specification and official test fixtures from Claude Spark / Don.
 
 ## 1.1.0
 

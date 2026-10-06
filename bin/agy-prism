@@ -32,14 +32,8 @@ if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-}" = "dumb" ]; then
     exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
 fi
 
-# Check if --link is requested
+# Command invocation
 PRISM_CMD="$PRISM_BIN"
-for arg in "$@"; do
-    if [ "$arg" = "--link" ]; then
-        PRISM_CMD="$PRISM_BIN --link"
-        break
-    fi
-done
 
 # Case 1: Already inside tmux - split current window
 if [ -n "${TMUX:-}" ] && [ -x "$TMUX_BIN" ]; then

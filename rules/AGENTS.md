@@ -8,7 +8,7 @@ When developing or executing tasks within environments paired with Prism:
 
 ## 2. Truthful Lifecycle Semantics
 - Never fabricate fake events or simulate idle state while background tasks are actively running.
-- Use explicit Antigravity lifecycle hooks (`PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) to report true state transitions.
+- Use explicit Antigravity lifecycle hooks (`PreInvocation`, `PostInvocation`, `PostToolUse`, `Stop`) to report true state transitions.
 - Acknowledge that `session.end` is terminal and cannot be resurrected.
 
 ## 3. Terminal Companion Conventions

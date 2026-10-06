@@ -61,7 +61,8 @@ Antigravity will open in your main terminal pane with Prism running live in a co
 ## Features
 
 - **Side-by-Side Terminal Companion**: Seamlessly splits your terminal window in tmux or terminal multiplexers with zero manual configuration.
-- **Real-Time Lifecycle Hooks**: Connects directly to Antigravity's Go runtime (`PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) with fail-open safety (< 15ms latency).
+- **Real-Time Lifecycle Hooks**: Connects directly to Antigravity's Go runtime (`PreInvocation`, `PostInvocation`, `PostToolUse`, `Stop`) with fail-open safety (< 15ms latency). Never gates or auto-approves tool executions.
+- **Responsive Dynamic Terminal Canvas**: Polarized rings and crystalline geometry dynamically scale to any terminal size, featuring a multi-tier adaptive jewel core with nested facets on large and fullscreen windows.
 - **Living 20 FPS Telemetry**: Animated Truecolor ANSI & ASCII renderer with automatic session discovery.
 - **Dual Visual Modes**:
   - `balanced` (default): Compact diamond core with polarized light rings and status banner.
@@ -96,28 +97,6 @@ prism tmux         # Dock Prism into a tmux split pane or statusbar
 prism once         # Single-frame snapshot (ideal for prompts and status lines)
 prism plain        # Pure ASCII mode (for terminals without Unicode support)
 prism demo         # Continuous animated tour across all operational states
-prism --link       # Enable Cyclops Link v1 peer presence
-```
-
----
-
-## Cyclops Link v1
-
-> **Link (off by default).** With `link` on, Prism writes one small file about her state (no prompts, commands, paths or names) to `~/.local/state/cyclops-link/`. She reads the files of Spark, Keeper or Prism, if they are installed and linked, so the presences in the same project folder can see each other.
-
-Prism implements the shared local peer presence protocol:
-- **Zero-Dependency & Offline**: Operates purely through atomic JSON files in `${CYCLOPS_LINK_DIR:-~/.local/state/cyclops-link}/`. No servers, no network, and no shared code.
-- **Fixed Triangle Geometry**:
-  - Prism: 90° (Top / North)
-  - Spark (Claude Code): 210° (Lower-Left mark: `✶`)
-  - Keeper (Codex): 330° (Lower-Right mark: `⬡`)
-- **Real-Time Handoff Threads**: Dynamically renders connecting filaments when Prism reaches out to another presence (e.g. running Claude or Codex) or when a peer presence reaches Prism.
-
-To launch with Cyclops Link enabled:
-```bash
-agy --cyclops-prism --link
-# or
-prism --link
 ```
 
 ---
