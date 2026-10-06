@@ -290,8 +290,10 @@ def load_feed_state(feed_dir: Path) -> dict:
                     else:
                         sem_mode = "attending" if typ == "turn.attend" else "idle"
 
-                    offer = "crystallize" if typ in ("reply.crystallize", "turn.resolve") else None
-                    hover_text = f"Prism · {sem_mode}"
+                    if sem_mode == "idle":
+                        hover_text = "Prism · ready"
+                    else:
+                        hover_text = f"Prism · {sem_mode}"
                     if sem_mode == "refracting" and active_calls:
                         kinds = sorted({c["kind"] for c in active_calls})
                         hover_text = f"Prism · refracting · {', '.join(kinds)}"
