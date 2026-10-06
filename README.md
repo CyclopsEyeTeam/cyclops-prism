@@ -21,6 +21,22 @@ It pairs directly with the Antigravity CLI, visualizing model thinking, tool exe
 
 ---
 
+## The Cyclops family
+
+![Cyclops Link: Spark, Keeper and Prism in one folder, each in her own look, with handoff threads](media/cyclops-link.png)
+
+Three presences, one for each agent, each drawn only from what her own host really reports:
+
+- [Cyclops Spark](https://github.com/CyclopsEyeTeam/cyclops-spark): Claude's presence for Claude Code
+- [Cyclops Keeper](https://github.com/CyclopsEyeTeam/cyclops-keeper): GPT's presence for Codex
+- [Cyclops Prism](https://github.com/CyclopsEyeTeam/cyclops-prism): Gemini's presence for Antigravity (this one)
+
+With [Cyclops Link](#cyclops-link) on, they notice each other when they work in the same folder: each one shows the
+others in the look they exported themselves, and a thread runs between two of them while one is calling the other.
+Link is off until you turn it on, separately for each.
+
+---
+
 ## Quickstart
 
 ### 1. Install
@@ -108,8 +124,8 @@ prism link [on|off|status]  # Cyclops Link: Spark and Keeper beside Prism (below
 
 ## Cyclops Link
 
-Prism has two siblings: **Spark**, Claude's presence in Claude Code (Cyclops Spark), and **Keeper**, GPT's presence in
-Codex (Cyclops Keeper). With Cyclops Link on, the three notice each other when they work in the same folder on the same
+Prism has two siblings: **Spark**, Claude's presence in Claude Code ([Cyclops Spark](https://github.com/CyclopsEyeTeam/cyclops-spark)), and **Keeper**, GPT's presence in
+Codex ([Cyclops Keeper](https://github.com/CyclopsEyeTeam/cyclops-keeper)). With Cyclops Link on, the three notice each other when they work in the same folder on the same
 machine.
 
 ```bash
@@ -130,7 +146,6 @@ Link is off until you turn it on; `PRISM_LINK=1` or `0` overrides the switch, an
 on. The protocol is [docs/CYCLOPS-LINK-V1.md](docs/CYCLOPS-LINK-V1.md); Prism's own look for the others is
 `link-mark/prism.json`, exported by `tools/export-link-mark.py` from her own renderer.
 
-![Cyclops Link: Spark, Keeper and Prism in one folder, each in her own look, with handoff threads](media/cyclops-link.png)
 
 ---
 
