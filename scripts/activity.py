@@ -135,8 +135,9 @@ def adapt_hook_event(
 
     # 3. PostToolUse -> refract.resolve, refract.halt, or branch.resolve
     elif hook_event == "PostToolUse":
-        raw_key = matching_key or digest(f"{conv_id}:{step_idx}")
-        tool_name = payload.get("toolName", "")
+        tool_call = payload.get("toolCall", {}) if isinstance(payload.get("toolCall"), dict) else {}
+        tool_name = payload.get("toolName", "") or tool_call.get("name", "")
+        raw_key = matching_key or (digest(f"{conv_id}:{step_idx}:{tool_name}") if tool_name else digest(f"{conv_id}:{step_idx}"))
 
         # Error return
         if payload.get("error"):
@@ -157,8 +158,12 @@ def adapt_hook_event(
 
     # 4. Stop -> turn.resolve or turn.halt
     elif hook_event == "Stop":
-        reason = payload.get("terminationReason", "model_stop")
-        if reason == "model_stop":
+        reason = str(payload.get("terminationReason", "model_stop") or "").strip()
+        is_halt = any(
+            err in reason.upper()
+            for err in ["ERROR", "CANCEL", "HALT", "MAX_INVOCATIONS", "BUDGET_EXCEEDED"]
+        )
+        if not is_halt:
             return {"seq": sequence, "t": stamp, "type": "turn.resolve"}
         else:
             return {"seq": sequence, "t": stamp, "type": "turn.halt"}

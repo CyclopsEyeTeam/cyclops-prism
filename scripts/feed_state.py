@@ -153,8 +153,11 @@ def advance(checkpoint: Dict[str, Any], events: List[Dict[str, Any]]) -> Dict[st
                 state["relationsIncomplete"] = True
             state["tools"] = list(tools.values())
             state["phase"] = "refracting"
-        elif ev_type in {"refract.resolve", "refract.halt"} and is_valid_key(key):
-            state["tools"] = [r for r in state["tools"] if r["key"] != key]
+        elif ev_type in {"refract.resolve", "refract.halt"}:
+            if is_valid_key(key) and any(r["key"] == key for r in state["tools"]):
+                state["tools"] = [r for r in state["tools"] if r["key"] != key]
+            elif state["tools"]:
+                state["tools"].pop()
             if state["phase"] == "refracting":
                 state["phase"] = "refracting" if state["tools"] else ("branching" if state["branches"] else "ready")
 

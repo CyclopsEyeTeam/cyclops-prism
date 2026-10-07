@@ -126,6 +126,71 @@ class TestHookFeed(unittest.TestCase):
         self.assertIsNotNone(discovered)
         self.assertEqual(discovered.resolve(), session_dir.resolve())
 
+    def test_feed_discovery_event_recency(self):
+        # Session A: older real events (t=100.0) but newer file mtime (simulating heartbeat daemon)
+        dir_a = self.presence_root / "session-a-idle" / "prism"
+        presence_feed._safe_mkdir(dir_a)
+        live_a = dir_a / "live.json"
+        live_a.write_text('{"v":1,"events":[{"type":"turn.attend","seq":1,"t":100.0}],"aliveAt":5000.0}', encoding="utf-8")
+        os.utime(live_a, (5000.0, 5000.0))
+
+        # Session B: recent real events (t=2000.0)
+        dir_b = self.presence_root / "session-b-active" / "prism"
+        presence_feed._safe_mkdir(dir_b)
+        live_b = dir_b / "live.json"
+        live_b.write_text('{"v":1,"events":[{"type":"refract.start","kind":"inspect","seq":2,"t":2000.0}],"aliveAt":2000.0}', encoding="utf-8")
+        os.utime(live_b, (2000.0, 2000.0))
+
+        discovered = presence_feed.find_active_feed(self.env)
+        self.assertIsNotNone(discovered)
+        self.assertEqual(discovered.resolve(), dir_b.resolve(), "Active session with newer events must be chosen")
+
+    def test_feed_discovery_ignores_ended_and_dead_sessions(self):
+        # Ended session should be ignored
+        dir_ended = self.presence_root / "session-ended" / "prism"
+        presence_feed._safe_mkdir(dir_ended)
+        live_ended = dir_ended / "live.json"
+        live_ended.write_text('{"v":1,"events":[{"type":"turn.attend","seq":1,"t":1000.0},{"type":"session.end","seq":2,"t":1005.0}],"ended":true}', encoding="utf-8")
+
+        # Session with dead producer should be ignored
+        import hashlib
+        dir_dead = self.presence_root / "session-dead-prod" / "prism"
+        presence_feed._safe_mkdir(dir_dead)
+        live_dead = dir_dead / "live.json"
+        live_dead.write_text('{"v":1,"events":[{"type":"turn.attend","seq":1,"t":1000.0}],"ended":false}', encoding="utf-8")
+        dead_hash = hashlib.sha256("session-dead-prod".encode("utf-8")).hexdigest()
+        sessions_dir = self.state_root / "gemini-prism" / "sessions"
+        presence_feed._safe_mkdir(sessions_dir)
+        # Record pointing to non-existent PID 999999
+        (sessions_dir / f"{dead_hash}.state.json").write_text(json.dumps({
+            "v": 1,
+            "producer": {"pid": 999999, "startTicks": 12345}
+        }), encoding="utf-8")
+
+        discovered = presence_feed.find_active_feed(self.env)
+        self.assertIsNone(discovered, "Ended sessions and sessions with dead producers must not be returned as active")
+
+    def test_hook_cli_event_arg(self):
+        # Test that passing --event PostToolUse on CLI correctly processes as PostToolUse
+        hook_path = SCRIPTS_DIR / "hook.py"
+        payload = {
+            "conversationId": "cli-arg-test",
+            "stepIdx": 5,
+            "toolName": "view_file",
+        }
+        res = subprocess.run(
+            [sys.executable, str(hook_path), "--event", "PostToolUse"],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            env=self.env,
+            timeout=5,
+        )
+        self.assertEqual(res.returncode, 0)
+        feed_dir = self.presence_root / "cli-arg-test" / "prism"
+        live_data = json.loads((feed_dir / "live.json").read_text(encoding="utf-8"))
+        self.assertEqual(live_data["events"][-1]["type"], "refract.resolve")
+
     def test_hook_latency(self):
         import hook
         payload = {

@@ -104,6 +104,10 @@ agy --prism -c
 # Top View (companion banner on top)
 agy --prismtop --model gemini-2.5-pro
 # Or: agy-prismtop --model gemini-2.5-pro
+
+# Native Window Mode (separate GNOME Terminal companion window without tmux)
+agy --prism --native
+# Or: agy-prism --window
 ```
 
 ### Standalone Companion Modes

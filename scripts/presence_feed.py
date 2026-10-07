@@ -46,7 +46,11 @@ def resolve_target(environ: Optional[Dict[str, str]] = None, payload: Optional[D
 
 
 def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]:
-    """Auto-discover the most recent active presence feed directory."""
+    """Auto-discover the most recent active presence feed directory.
+    
+    Prioritizes sessions running in the current workspace with recent real events
+    over idle background heartbeat daemons.
+    """
     env = os.environ if environ is None else environ
     home = env.get("HOME", "/tmp")
 
@@ -70,8 +74,14 @@ def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]
         state_home / "cyclops-presence",
     ])
 
+    sessions_dir = state_home / "gemini-prism" / "sessions"
+    try:
+        current_cwd = os.path.realpath(os.getcwd())
+    except OSError:
+        current_cwd = ""
+
     best_path = None
-    best_mtime = -1.0
+    best_score = -float("inf")
 
     for root in candidate_roots:
         if not root.is_dir():
@@ -80,19 +90,69 @@ def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]
             for item in root.iterdir():
                 if not item.is_dir():
                     continue
-                # Could be root/session/live.json or root/session/prism/live.json
                 direct_live = item / "live.json"
                 nested_live = item / feed_state.ENTITY / "live.json"
-                if nested_live.is_file():
-                    mt = nested_live.stat().st_mtime
-                    if mt > best_mtime:
-                        best_mtime = mt
-                        best_path = nested_live.parent
-                elif direct_live.is_file():
-                    mt = direct_live.stat().st_mtime
-                    if mt > best_mtime:
-                        best_mtime = mt
-                        best_path = item
+                target_live = nested_live if nested_live.is_file() else (direct_live if direct_live.is_file() else None)
+                if not target_live:
+                    continue
+
+                session_id = item.name
+                feed_dir = target_live.parent
+
+                try:
+                    stat = target_live.stat()
+                    file_mtime = stat.st_mtime
+                    data = json.loads(target_live.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    continue
+
+                events = data.get("events", [])
+                ended = bool(data.get("ended", False))
+                started_at = float(data.get("startedAt", 0.0))
+                last_event_t = float(events[-1].get("t", started_at)) if events else started_at
+
+                # Check corresponding session state record for producer liveness & workspace match
+                session_hash = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+                state_path = sessions_dir / f"{session_hash}.state.json"
+                ws_match = False
+                is_prod_alive = False
+                has_dead_producer = False
+
+                if state_path.is_file():
+                    try:
+                        record = json.loads(state_path.read_text(encoding="utf-8"))
+                        producer = record.get("producer")
+                        if producer_alive(producer):
+                            is_prod_alive = True
+                            pid = producer.get("pid")
+                            try:
+                                proc_cwd = os.path.realpath(f"/proc/{pid}/cwd")
+                                if current_cwd and (proc_cwd == current_cwd or current_cwd.startswith(proc_cwd)):
+                                    ws_match = True
+                            except OSError:
+                                pass
+                        elif producer:
+                            has_dead_producer = True
+                    except (OSError, ValueError):
+                        pass
+
+                # Disqualify ended sessions and dead host processes from active feed discovery
+                if ended or has_dead_producer:
+                    continue
+
+                # Scoring: prioritize active session in current workspace with real recent events
+                score = max(last_event_t, file_mtime - 3600.0)
+
+                if ws_match:
+                    score += 10_000_000.0  # Strongly favor current workspace
+                if is_prod_alive:
+                    score += 1_000_000.0   # Favor live host processes
+                if events:
+                    score += 200_000.0     # Favor sessions with real events
+
+                if score > best_score:
+                    best_score = score
+                    best_path = feed_dir
         except (OSError, PermissionError):
             continue
 

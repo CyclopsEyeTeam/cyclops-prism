@@ -155,6 +155,17 @@ class PrismSeesThem(unittest.TestCase):
             self.assertNotIn(leak, text)
         self.assertIn("Link: on · Keeper, Spark", text)
 
+    def test_another_prism_peer_does_not_crash(self):
+        room = LinkedRoom()
+        # Put another prism instance in the room (e.g. from previous run or separate terminal)
+        room.put("prism", "antigravity", "other-prism-session", "working")
+        room.put("spark", "claude-code", "s", "tool")
+        view, frame = self.render(room)
+        # Verify another prism does not crash rendering and Spark is still drawn
+        self.assertIsNotNone(frame)
+        self.assertIn("spark · tool", "\n".join(_strip(frame)))
+        self.assertEqual(link_view.status(view), "Link: on · Spark")
+
 
 class Commands(unittest.TestCase):
     def test_prism_link_on_off_status_is_her_own_switch(self):

@@ -209,10 +209,15 @@ def draw(grid, view: Optional[Dict[str, Any]], sheets: Dict[str, Optional[Dict[s
     width = grid.width
     solid = set()
     for presence, peers in sorted(by_class.items()):
-        sheet = sheets.get(presence)
-        side = 1 if 90 < peer_bearing(presence) < 270 else -1   # 1: her seat is to Prism's left
+        if presence == "prism":
+            continue
+        b = peer_bearing(presence)
+        if b is None:
+            continue
+        side = 1 if 90 < b < 270 else -1   # 1: her seat is to Prism's left
         first = peers[0]
-        label = f"{NAMES[presence].lower()} · {first['state']}" + (f" ×{len(peers)}" if len(peers) > 1 else "")
+        label = f"{NAMES.get(presence, presence).lower()} · {first['state']}" + (f" ×{len(peers)}" if len(peers) > 1 else "")
+        sheet = sheets.get(presence)
         if sheet:
             crop = None
             cols, rows = sheet["cols"], sheet["rows"]
@@ -228,7 +233,7 @@ def draw(grid, view: Optional[Dict[str, Any]], sheets: Dict[str, Optional[Dict[s
         else:
             # No sheet from her: her name only, never an invented look
             y0 = max(1, hud_y - 1)
-            name = NAMES[presence]
+            name = NAMES.get(presence, presence.title())
             x0 = 1 if side > 0 else width - len(name) - 1
             grid.put_str(x0, y0, name, "\033[38;2;200;200;200m" if use_color else "")
             anchors[presence] = (x0 + len(name) / 2, y0)
@@ -249,7 +254,7 @@ def draw(grid, view: Optional[Dict[str, Any]], sheets: Dict[str, Optional[Dict[s
     return anchors
 
 
-def peer_bearing(presence: str) -> int:
+def peer_bearing(presence: str) -> Optional[int]:
     return link.bearing("prism", presence)
 
 
@@ -257,7 +262,8 @@ def status(view: Optional[Dict[str, Any]]) -> str:
     """One truthful line for Prism's focus telemetry."""
     if view is None:
         return "Link: off"
-    if not view["peers"]:
+    peers = [p for p in view["peers"] if p["presence"] != "prism"]
+    if not peers:
         return "Link: on · alone here"
-    names = sorted({NAMES[p["presence"]] for p in view["peers"]})
+    names = sorted({NAMES.get(p["presence"], p["presence"].title()) for p in peers})
     return "Link: on · " + ", ".join(names)

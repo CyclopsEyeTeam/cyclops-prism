@@ -121,6 +121,12 @@ def handle_event(payload: dict) -> None:
 
 
 def main() -> None:
+    event_name = None
+    for idx, arg in enumerate(sys.argv):
+        if arg == "--event" and idx + 1 < len(sys.argv):
+            event_name = sys.argv[idx + 1]
+            break
+
     payload = {}
     try:
         # Read bounded payload from stdin (max 2MB, short timeout)
@@ -143,6 +149,8 @@ def main() -> None:
                 p = json.loads(raw)
                 if isinstance(p, dict):
                     payload = p
+                    if event_name:
+                        payload["hookEvent"] = event_name
                     handle_event(payload)
                 break
             except (ValueError, UnicodeError):

@@ -18,6 +18,8 @@ import terminal
 _ISOLATED = dict(os.environ, XDG_STATE_HOME=tempfile.mkdtemp(prefix="prism-test-state-"),
                  XDG_CONFIG_HOME=tempfile.mkdtemp(prefix="prism-test-config-"))
 _ISOLATED.pop("PRISM_LINK", None)
+_ISOLATED.pop("TMUX", None)
+_ISOLATED.pop("TMUX_PANE", None)
 
 
 class TestTerminalModes(unittest.TestCase):
@@ -109,6 +111,7 @@ class TestTerminalModes(unittest.TestCase):
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=_ISOLATED)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("Notice: Not currently inside a tmux session", proc.stdout)
+        self.assertIn("mouse on", proc.stdout)
 
 
 if __name__ == "__main__":

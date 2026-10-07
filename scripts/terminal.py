@@ -370,7 +370,7 @@ def load_feed_state(feed_dir: Path) -> dict:
                     elif typ == "turn.halt":
                         sem_mode = "halted"
                     else:
-                        sem_mode = "attending" if typ == "turn.attend" else "idle"
+                        sem_mode = "attending" if typ in ("turn.attend", "refract.resolve", "branch.resolve") else "idle"
 
                     if sem_mode == "idle":
                         hover_text = "Prism · ready"
@@ -465,24 +465,26 @@ def handle_tmux(subcmd: str = "split") -> None:
 
     if subcmd in ("top", "prismtop"):
         if in_tmux:
+            subprocess.run([tmux_bin, "set", "-g", "mouse", "on"], check=False)
             subprocess.run([tmux_bin, "split-window", "-b", "-v", "-l", "14", launcher], check=False)
             subprocess.run([tmux_bin, "select-pane", "-D"], check=False)
             print("✓ Prism companion opened in top pane.")
         else:
             print("Notice: Not currently inside a tmux session.")
             print("Start a new tmux session with Prism on top using:")
-            print(f"  tmux new-session \\; split-window -b -v -l 14 '{launcher}' \\; select-pane -D")
+            print(f"  tmux new-session \\; set -g mouse on \\; split-window -b -v -l 14 '{launcher}' \\; select-pane -D")
         return
 
     if subcmd in ("split", "side", "open", "launch", ""):
         if in_tmux:
+            subprocess.run([tmux_bin, "set", "-g", "mouse", "on"], check=False)
             subprocess.run([tmux_bin, "split-window", "-h", "-l", "35", launcher], check=False)
             subprocess.run([tmux_bin, "select-pane", "-L"], check=False)
             print("✓ Prism companion opened in side pane.")
         else:
             print("Notice: Not currently inside a tmux session.")
             print("Start a new tmux session with Prism side-by-side using:")
-            print(f"  tmux new-session \\; split-window -h -l 35 '{launcher}' \\; select-pane -L")
+            print(f"  tmux new-session \\; set -g mouse on \\; split-window -h -l 35 '{launcher}' \\; select-pane -L")
         return
 
     if subcmd == "kill":
@@ -606,63 +608,79 @@ def main():
         print(frame)
         sys.exit(0)
 
+    explicit_feed = args.feed is not None
+
     # Interactive live animation loop
     def restore_and_exit(signum=None, frame=None):
-        sys.stdout.write("\033[?25h\033[0m\033[?1049l\n")  # Show cursor, reset color, exit alternate screen
+        sys.stdout.write("\033[?25h\033[?12h\033[0m\033[?1049l\n")  # Show cursor, restore blink, reset color, exit alternate screen
+        if os.environ.get("TMUX"):
+            sys.stdout.write("\033Ptmux;\033\033[?25h\033\\\033Ptmux;\033\033[?12h\033\\")
         sys.stdout.flush()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, restore_and_exit)
     signal.signal(signal.SIGTERM, restore_and_exit)
 
-    # Enter alternate screen buffer & hide cursor
-    sys.stdout.write("\033[?1049h\033[?25l\033[2J\033[H")
+    # Enter alternate screen buffer, hide cursor & disable blinking
+    sys.stdout.write("\033[?1049h\033[?25l\033[?12l\033[2J\033[H")
+    if os.environ.get("TMUX"):
+        sys.stdout.write("\033Ptmux;\033\033[?25l\033\\\033Ptmux;\033\033[?12h\033\\")
     sys.stdout.flush()
 
     try:
         t0 = time.time()
+        last_feed_check = 0.0
         prev_size = None
         while True:
-            t = time.time() - t0
-            cols, rows = shutil.get_terminal_size((80, 24))
+            try:
+                t = time.time() - t0
+                cols, rows = shutil.get_terminal_size((80, 24))
 
-            # Auto-recheck feed if none was found initially
-            if not feed_dir and not args.demo and not args.demo_state and presence_feed and int(t) % 2 == 0:
-                feed_dir = presence_feed.find_active_feed()
+                # Auto-recheck feed dynamically every 0.5s if running in auto mode
+                if not explicit_feed and not args.demo and not args.demo_state and presence_feed and (t - last_feed_check >= 0.5):
+                    last_feed_check = t
+                    discovered = presence_feed.find_active_feed()
+                    if discovered and discovered != feed_dir:
+                        feed_dir = discovered
 
-            if feed_dir and feed_dir.is_dir():
-                state = load_feed_state(feed_dir)
-            elif args.demo or args.demo_state:
-                state = get_demo_state(t, forced_state=args.demo_state)
-            else:
-                state = get_demo_state(t, forced_state="idle")
+                if feed_dir and feed_dir.is_dir():
+                    state = load_feed_state(feed_dir)
+                elif args.demo or args.demo_state:
+                    state = get_demo_state(t, forced_state=args.demo_state)
+                else:
+                    state = get_demo_state(t, forced_state="idle")
 
-            frame = render_prism_frame(
-                state,
-                cols,
-                rows,
-                t=t,
-                mode=args.mode,
-                unicode_mode=unicode_mode,
-                use_color=use_color,
-                reduced_motion=args.reduced_motion,
-                calm=args.calm,
-                link_state=watch.view(feed_dir) if watch else None,
-                link_sheets=watch.sheets if watch else None,
-            )
+                link_st = None
+                link_sh = None
+                if watch:
+                    try:
+                        link_st = watch.view(feed_dir)
+                        link_sh = watch.sheets
+                    except Exception:
+                        pass
 
-            # Atomic synchronized redraw with cursor hide & cursor park
-            clear_seq = "\033[2J" if (cols, rows) != prev_size else ""
-            prev_size = (cols, rows)
+                frame = render_prism_frame(
+                    state,
+                    cols,
+                    rows,
+                    t=t,
+                    mode=args.mode,
+                    unicode_mode=unicode_mode,
+                    use_color=use_color,
+                    reduced_motion=args.reduced_motion,
+                    calm=args.calm,
+                    link_state=link_st,
+                    link_sheets=link_sh,
+                )
 
-            # \033[?2026h: Begin synchronized update (atomic frame render)
-            # \033[?25l: Re-assert cursor hide
-            # \033[H: Cursor home
-            # frame: Artwork
-            # \033[1;1H: Park cursor at top-left
-            # \033[?2026l: End synchronized update
-            sys.stdout.write(f"\033[?2026h\033[?25l{clear_seq}\033[H{frame}\033[1;1H\033[?2026l")
-            sys.stdout.flush()
+                # Atomic redraw with cursor hide & bottom-right parking
+                clear_seq = "\033[2J" if (cols, rows) != prev_size else ""
+                prev_size = (cols, rows)
+
+                sys.stdout.write(f"\033[?25l\033[?12l{clear_seq}\033[H{frame}\033[{rows};{cols}H\033[?25l")
+                sys.stdout.flush()
+            except Exception:
+                pass
             time.sleep(0.05)
     except (KeyboardInterrupt, SystemExit):
         restore_and_exit()

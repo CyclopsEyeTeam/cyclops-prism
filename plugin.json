@@ -1,6 +1,6 @@
 {
   "name": "cyclops-prism",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Cyclops Prism: Balanced, iridescent working presence and standalone terminal companion for Antigravity.",
   "hooks": "hooks.json",
   "interface": {

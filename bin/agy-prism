@@ -22,6 +22,7 @@ fi
 # Filter out companion flags and detect layout (side vs top)
 FILTERED_ARGS=()
 LAYOUT="side"
+USE_WINDOW="${AGY_PRISM_NATIVE:-${AGY_PRISM_WINDOW:-0}}"
 CALL_NAME="$(basename "${BASH_SOURCE[0]}")"
 if [[ "$CALL_NAME" == *"prismtop"* ]]; then
     LAYOUT="top"
@@ -32,6 +33,8 @@ for arg in "$@"; do
         LAYOUT="top"
     elif [ "$arg" = "--prism" ] || [ "$arg" = "--cyclops-prism" ]; then
         LAYOUT="side"
+    elif [ "$arg" = "--native" ] || [ "$arg" = "--window" ] || [ "$arg" = "--native-window" ]; then
+        USE_WINDOW=1
     else
         FILTERED_ARGS+=("$arg")
     fi
@@ -45,8 +48,75 @@ fi
 # Command invocation
 PRISM_CMD="$PRISM_BIN"
 
+# Helper: Launch in native GUI window (GNOME Terminal / xterm) without tmux
+launch_native_window() {
+    if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        local GEOM="45x28"
+        if [ "$LAYOUT" = "top" ]; then
+            GEOM="110x14"
+        fi
+        local PID=""
+        if command -v gnome-terminal >/dev/null 2>&1; then
+            gnome-terminal --title="Cyclops Prism" --geometry="$GEOM" -- "$PRISM_BIN" 2>/dev/null &
+            PID=$!
+        elif command -v x-terminal-emulator >/dev/null 2>&1; then
+            x-terminal-emulator -T "Cyclops Prism" -geometry "$GEOM" -e "$PRISM_BIN" 2>/dev/null &
+            PID=$!
+        elif command -v xterm >/dev/null 2>&1; then
+            xterm -T "Cyclops Prism" -geometry "$GEOM" -e "$PRISM_BIN" 2>/dev/null &
+            PID=$!
+        fi
+        if [ -n "$PID" ]; then
+            cleanup_gui() {
+                kill "$PID" 2>/dev/null || true
+            }
+            trap cleanup_gui EXIT INT TERM
+            exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
+        fi
+    fi
+}
+
+# If explicitly requested, use native window without tmux
+if [ "$USE_WINDOW" = "1" ] || [ "$USE_WINDOW" = "true" ]; then
+    launch_native_window
+    # Fallback to agy if GUI terminal is unavailable
+    exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
+fi
+
+configure_clipboard_bindings() {
+    local clip_cmd=""
+    if command -v wl-copy >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        clip_cmd="wl-copy"
+    elif command -v xclip >/dev/null 2>&1; then
+        clip_cmd="xclip -in -selection clipboard"
+    elif command -v xsel >/dev/null 2>&1; then
+        clip_cmd="xsel -i -b"
+    fi
+
+    if [ -n "$clip_cmd" ] && [ -x "$TMUX_BIN" ]; then
+        "$TMUX_BIN" bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode Enter send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode c send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode-vi c send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode C-c send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+        "$TMUX_BIN" bind-key -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel "$clip_cmd" 2>/dev/null || true
+    fi
+}
+
 # Case 1: Already inside tmux - split current window
 if [ -n "${TMUX:-}" ] && [ -x "$TMUX_BIN" ]; then
+    # Enable native mouse scrolling and deep history in current tmux session
+    "$TMUX_BIN" set -g mouse on 2>/dev/null || true
+    "$TMUX_BIN" set -g history-limit 50000 2>/dev/null || true
+    "$TMUX_BIN" set -s escape-time 0 2>/dev/null || true
+    "$TMUX_BIN" set -s set-clipboard on 2>/dev/null || true
+    "$TMUX_BIN" set -as terminal-features ",*:RGB" 2>/dev/null || true
+    "$TMUX_BIN" set -as terminal-overrides ",*:Tc" 2>/dev/null || true
+    configure_clipboard_bindings
+
     if [ "$LAYOUT" = "top" ]; then
         PANE_ID=$("$TMUX_BIN" split-window -b -v -l 14 -P -F "#{pane_id}" "$PRISM_CMD" 2>/dev/null || true)
         if [ -n "$PANE_ID" ]; then
@@ -81,6 +151,29 @@ AGY="$1"
 SESSION="$2"
 RUNNER_FILE="$3"
 shift 3
+
+# Configure system clipboard integration in tmux
+CLIP_CMD=""
+if command -v wl-copy >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    CLIP_CMD="wl-copy"
+elif command -v xclip >/dev/null 2>&1; then
+    CLIP_CMD="xclip -in -selection clipboard"
+elif command -v xsel >/dev/null 2>&1; then
+    CLIP_CMD="xsel -i -b"
+fi
+
+if [ -n "$CLIP_CMD" ]; then
+    tmux bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode Enter send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode c send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi c send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode C-c send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel "$CLIP_CMD" 2>/dev/null || true
+fi
+
 "$AGY" "$@"
 EXIT_CODE=$?
 rm -f "$RUNNER_FILE" 2>/dev/null || true
@@ -88,31 +181,49 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 exit $EXIT_CODE
 EOF
 
+    # Configure tmux options for native terminal behavior:
+    # - mouse on: wheel scrolls pane scrollback instead of sending Up/Down arrow keys to agy
+    # - history-limit 50000: deep scrollback
+    # - escape-time 0: instant ESC response
+    # - set-clipboard on: desktop clipboard sync
+    # - destroy-unattached on: cleanly destroy session when window closes
+    # - status off: hide tmux bottom bar for a seamless, distraction-free native look
+    STATUS_OPT="off"
+    if [ "${AGY_PRISM_TMUX_STATUS:-0}" = "1" ]; then
+        STATUS_OPT="on"
+    fi
+
     if [ "$LAYOUT" = "top" ]; then
         exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
+             set-option -t "$SESSION_NAME" mouse on \; \
+             set-option -t "$SESSION_NAME" history-limit 50000 \; \
+             set-option -s escape-time 0 \; \
+             set-option -s set-clipboard on \; \
+             set-option -t "$SESSION_NAME" default-terminal "tmux-256color" \; \
+             set-option -as terminal-features ",*:RGB" \; \
+             set-option -as terminal-overrides ",*:Tc" \; \
+             set-option -t "$SESSION_NAME" destroy-unattached on \; \
+             set-option -t "$SESSION_NAME" status "$STATUS_OPT" \; \
              split-window -b -v -l 14 "$PRISM_CMD" \; \
              select-pane -D
     else
         exec "$TMUX_BIN" new-session -s "$SESSION_NAME" "$RUNNER \"$AGY_BIN\" \"$SESSION_NAME\" \"$RUNNER\" ${FILTERED_ARGS[*]@Q}" \; \
+             set-option -t "$SESSION_NAME" mouse on \; \
+             set-option -t "$SESSION_NAME" history-limit 50000 \; \
+             set-option -s escape-time 0 \; \
+             set-option -s set-clipboard on \; \
+             set-option -t "$SESSION_NAME" default-terminal "tmux-256color" \; \
+             set-option -as terminal-features ",*:RGB" \; \
+             set-option -as terminal-overrides ",*:Tc" \; \
+             set-option -t "$SESSION_NAME" destroy-unattached on \; \
+             set-option -t "$SESSION_NAME" status "$STATUS_OPT" \; \
              split-window -h -l 35 "$PRISM_CMD" \; \
              select-pane -L
     fi
 fi
 
 # Case 3: Desktop fallback
-if [ -n "${DISPLAY:-}" ] && command -v gnome-terminal >/dev/null 2>&1; then
-    GEOM="40x25"
-    if [ "$LAYOUT" = "top" ]; then
-        GEOM="100x14"
-    fi
-    gnome-terminal --title="Cyclops Prism" --geometry="$GEOM" -- "$PRISM_BIN" 2>/dev/null &
-    PRISM_PID=$!
-    cleanup_gui() {
-        kill "$PRISM_PID" 2>/dev/null || true
-    }
-    trap cleanup_gui EXIT INT TERM
-    exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
-fi
+launch_native_window
 
 # Fallback
 exec "$AGY_BIN" "${FILTERED_ARGS[@]}"

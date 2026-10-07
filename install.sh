@@ -10,8 +10,18 @@ echo "=========================================="
 echo "  Cyclops Prism Plugin Installer (agy)    "
 echo "=========================================="
 
-if [[ "${1:-}" == "--uninstall" ]]; then
-    echo "Uninstalling Cyclops Prism..."
+cleanup_old_install() {
+    echo "Existing installation detected. Cleaning up previous version..."
+    # Terminate any running presence daemons to prevent stale feeds
+    pkill -f "presence_feed.py --daemon" 2>/dev/null || true
+    # Terminate stale unattached agy-prism tmux sessions
+    if command -v tmux &>/dev/null; then
+        for s in $(tmux list-sessions -F "#{session_name} #{session_attached}" 2>/dev/null | awk '$2=="0"{print $1}' || true); do
+            if [[ "$s" == agy-prism-* ]]; then
+                tmux kill-session -t "$s" 2>/dev/null || true
+            fi
+        done
+    fi
     rm -f "${BIN_DIR}/prism"
     rm -f "${BIN_DIR}/gemini-prism"
     rm -f "${BIN_DIR}/agy-prism"
@@ -23,12 +33,59 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         agy plugin uninstall "${PLUGIN_NAME}" 2>/dev/null || true
     fi
     rm -rf "${HOME}/.gemini/config/plugins/${PLUGIN_NAME}"
+    echo "✓ Previous version cleaned up."
+}
+
+if [[ "${1:-}" == "--uninstall" ]]; then
+    echo "Uninstalling Cyclops Prism..."
+    cleanup_old_install
+    if [ -f "${HOME}/.tmux.conf" ]; then
+        sed -i '/# Cyclops Prism: native mouse/,/# End Cyclops Prism/d' "${HOME}/.tmux.conf" 2>/dev/null || true
+        sed -i '/# Cyclops Prism: native mouse and scrollback support/,/set -as terminal-overrides ",*:Tc"/d' "${HOME}/.tmux.conf" 2>/dev/null || true
+    fi
     echo "✓ Uninstalled successfully."
     exit 0
 fi
 
+# Detect if an older version is currently installed and clean it up automatically
+if [ -f "${BIN_DIR}/prism" ] || [ -f "${BIN_DIR}/gemini-prism" ] || [ -f "${BIN_DIR}/agy-prism" ] || \
+   [ -f "${BIN_DIR}/agy-prismtop" ] || [ -d "${HOME}/.gemini/config/plugins/${PLUGIN_NAME}" ] || \
+   (command -v agy &>/dev/null && agy plugin list 2>/dev/null | grep -q "${PLUGIN_NAME}"); then
+    cleanup_old_install
+fi
+
 # 1. Ensure ~/.local/bin exists
 mkdir -p "${BIN_DIR}"
+
+# Ensure native mouse scrolling, deep history, truecolor, and clipboard support in ~/.tmux.conf
+TMUX_SNIPPET='# Cyclops Prism: native mouse and scrollback support
+set -g mouse on
+set -g history-limit 50000
+set -s escape-time 0
+set -s set-clipboard on
+set -g default-terminal "tmux-256color"
+set -as terminal-features ",*:RGB"
+set -as terminal-overrides ",*:Tc"
+
+# Copy highlighted selection directly to system clipboard
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode Enter send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode c send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode-vi c send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode C-c send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+# End Cyclops Prism'
+
+if [ -f "${HOME}/.tmux.conf" ]; then
+    if ! grep -q "MouseDragEnd1Pane" "${HOME}/.tmux.conf"; then
+        echo -e "\n${TMUX_SNIPPET}" >> "${HOME}/.tmux.conf"
+    fi
+else
+    echo -e "${TMUX_SNIPPET}" > "${HOME}/.tmux.conf"
+fi
 
 # 2. Symlink launcher binaries into ~/.local/bin
 echo "Installing CLI launchers to ${BIN_DIR}..."

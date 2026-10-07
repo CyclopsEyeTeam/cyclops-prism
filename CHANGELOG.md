@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1 - Clipboard Integration & Cold-Start Resilience
+
+- **System Clipboard Integration (`xclip` / `wl-copy`)**: Added automatic system clipboard piping on mouse drag release in tmux companion sessions (`MouseDragEnd1Pane`), along with native keyboard copy-mode bindings (`Enter`, `y`, `c`, `Ctrl+c`) and right-click support.
+- **Terminal Bypass via Shift**: Retained native terminal selection bypass so holding `Shift` while dragging or right-clicking enables standard terminal emulator context menus and `Ctrl+Shift+c`.
+- **New `/copy` Slash Command**: Introduced `/copy` command to copy text, code blocks, or the latest assistant response directly into the OS clipboard.
+- **Active Session Feed Discovery Fix**: Resolved cold-start monochrome/frozen state when launching `agy --prism`. The discovery routine (`find_active_feed()`) now ignores ended sessions and dead host processes, prioritizing active sessions with recent event timestamps.
+- **Link View Peer Crash Guard**: Fixed a `TypeError` crash caused by uninitialized peer bearings and handled duplicate Prism peers safely.
+- **Terminal Companion Redraw Resilience**: Added exception guards and cursor parking to prevent transient feed glitches from crashing the companion animation.
+- **Native Window Launch Mode**: Added `--native` / `--window` flags to open Prism in a standalone GUI terminal window outside of tmux.
+
 ## 1.2.0 - Cyclops Link
 
 - **Cyclops Link** (off until `prism link on`): Prism, Spark and Keeper notice each other when they work in the same
