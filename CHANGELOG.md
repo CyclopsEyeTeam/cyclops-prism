@@ -8,6 +8,7 @@
 - **Active Session Feed Discovery Fix**: Resolved cold-start monochrome/frozen state when launching `agy --prism`. The discovery routine (`find_active_feed()`) now ignores ended sessions and dead host processes, prioritizing active sessions with recent event timestamps.
 - **Link View Peer Crash Guard**: Fixed a `TypeError` crash caused by uninitialized peer bearings and handled duplicate Prism peers safely.
 - **Terminal Companion Redraw Resilience**: Added exception guards and cursor parking to prevent transient feed glitches from crashing the companion animation.
+- **Optical Dispersion & Living Crystalline Presence**: Elevated the terminal companion with living chromatic spectral gradients along the polarized rings (cyclic interpolation through hyper-cyan, emerald teal, electric violet, solar gold, and pearl white). The central polyhedral facets dynamically awaken across lifecycle states: attending (nested facet `◈`), refracting (optical dispersion `❖`), parallel synthesis (polyhedral lattice `◇` with multi-hued satellite orbits), and crystallization (radiant warm white star `✦`).
 - **Native Window Launch Mode**: Added `--native` / `--window` flags to open Prism in a standalone GUI terminal window outside of tmux.
 
 ## 1.2.0 - Cyclops Link

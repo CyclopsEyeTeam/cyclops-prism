@@ -47,6 +47,17 @@ C_WHITE = "\033[38;2;255;246;214m"   # Crystalline Warm White (#FFF6D6)
 C_DIM = "\033[38;2;107;114;128m"     # Neutral Gray (#6B7280)
 C_DARK = "\033[38;2;55;65;81m"       # Dark Gray (#374151)
 
+RGB_CYAN = (0, 242, 254)       # Hyper-cyan #00F2FE
+RGB_TEAL = (0, 229, 163)       # Emerald Teal #00E5A3
+RGB_VIOLET = (121, 40, 202)    # Electric Violet #7928CA
+RGB_INDIGO = (76, 29, 149)     # Deep Indigo #4C1D95
+RGB_GOLD = (255, 176, 32)      # Solar Gold #FFB020
+RGB_AMBER = (255, 128, 66)     # Solar Amber #FF8042
+RGB_WHITE = (255, 246, 214)    # Crystalline Warm White #FFF6D6
+RGB_RED = (255, 77, 77)        # Approval Red #FF4D4D
+RGB_DIM = (107, 114, 128)      # Neutral Gray #6B7280
+RGB_DARK = (55, 65, 81)        # Dark Gray #374151
+
 KIND_COLOR_MAP = {
     "inspect": C_CYAN,
     "change": C_GOLD,
@@ -54,6 +65,65 @@ KIND_COLOR_MAP = {
     "service": C_TEAL,
     "other": C_AMBER,
 }
+
+
+def _sample_gradient(stops: List[tuple], pos: float) -> str:
+    """Sample a cyclic gradient of [(r,g,b), ...] at pos in [0.0, 1.0)."""
+    n = len(stops)
+    if n == 0:
+        return C_CYAN
+    if n == 1:
+        r, g, b = stops[0]
+        return f"\033[38;2;{r};{g};{b}m"
+    pos = pos % 1.0
+    scaled = pos * n
+    idx = int(scaled)
+    f = scaled - idx
+    c1 = stops[idx % n]
+    c2 = stops[(idx + 1) % n]
+    r = int(c1[0] + (c2[0] - c1[0]) * f)
+    g = int(c1[1] + (c2[1] - c1[1]) * f)
+    b = int(c1[2] + (c2[2] - c1[2]) * f)
+    return f"\033[38;2;{r};{g};{b}m"
+
+
+def _get_ring_color(ring_id: int, phi: float, theta: float, sem_mode: str, offer: Optional[str], primary_kind: str = "") -> str:
+    """Calculate the living chromatic dispersion along Prism's polarized rings."""
+    pos = ((phi + (theta if ring_id == 1 else -theta)) / (2.0 * math.pi)) % 1.0
+
+    if sem_mode == "approval":
+        return _sample_gradient([RGB_RED, RGB_GOLD, RGB_RED, RGB_GOLD], pos)
+
+    if sem_mode in ("ended", "halted"):
+        return _sample_gradient([RGB_DARK, RGB_DIM, RGB_DARK] if ring_id == 1 else [RGB_DARK, RGB_DARK, RGB_DIM], pos)
+
+    if offer or sem_mode == "resolved":
+        stops1 = [RGB_WHITE, RGB_CYAN, RGB_WHITE, RGB_TEAL]
+        stops2 = [RGB_CYAN, RGB_WHITE, RGB_VIOLET, RGB_WHITE]
+        return _sample_gradient(stops1 if ring_id == 1 else stops2, pos)
+
+    if sem_mode == "refracting":
+        if primary_kind == "change":
+            stops1 = [RGB_GOLD, RGB_AMBER, RGB_CYAN, RGB_GOLD]
+            stops2 = [RGB_CYAN, RGB_GOLD, RGB_VIOLET, RGB_AMBER]
+        elif primary_kind == "execute":
+            stops1 = [RGB_VIOLET, RGB_INDIGO, RGB_CYAN, RGB_VIOLET]
+            stops2 = [RGB_CYAN, RGB_VIOLET, RGB_WHITE, RGB_INDIGO]
+        elif primary_kind == "inspect":
+            stops1 = [RGB_CYAN, RGB_TEAL, RGB_WHITE, RGB_CYAN]
+            stops2 = [RGB_TEAL, RGB_CYAN, RGB_VIOLET, RGB_TEAL]
+        elif primary_kind == "service":
+            stops1 = [RGB_TEAL, RGB_CYAN, RGB_TEAL, RGB_WHITE]
+            stops2 = [RGB_CYAN, RGB_TEAL, RGB_GOLD, RGB_CYAN]
+        else:
+            stops1 = [RGB_CYAN, RGB_GOLD, RGB_VIOLET, RGB_TEAL]
+            stops2 = [RGB_VIOLET, RGB_TEAL, RGB_GOLD, RGB_CYAN]
+        return _sample_gradient(stops1 if ring_id == 1 else stops2, pos)
+
+    # Signature iridescent dispersion (attending, synthesizing, branching, idle)
+    stops1 = [RGB_CYAN, RGB_TEAL, RGB_VIOLET, RGB_WHITE]
+    stops2 = [RGB_VIOLET, RGB_WHITE, RGB_GOLD, RGB_CYAN]
+    return _sample_gradient(stops1 if ring_id == 1 else stops2, pos)
 
 
 def _strip_colors(text: str) -> str:
@@ -129,6 +199,8 @@ def render_prism_frame(
     lanes = state_data.get("lanes", [])
     hover = state_data.get("hover", "Prism · ready")
 
+    primary_kind = lanes[0].get("kind", "") if lanes else ""
+
     # Glyph sets
     if unicode_mode:
         g_core = "⟐"
@@ -136,7 +208,7 @@ def render_prism_frame(
             g_core = "·"
         elif sem_mode == "approval":
             g_core = "!"
-        elif offer:
+        elif offer or sem_mode == "resolved":
             g_core = "✦"
         elif sem_mode == "synthesizing":
             g_core = "◈"
@@ -144,11 +216,13 @@ def render_prism_frame(
             g_core = "❖"
         elif sem_mode == "branching":
             g_core = "◇"
+        elif sem_mode == "attending":
+            g_core = "◈"
 
         g_sat = "◆"
         g_ring1 = "╱"
         g_ring2 = "╲"
-        g_node = "○"
+        g_node = "◈"
     else:
         g_core = "." if ended else ("!" if sem_mode == "approval" else ("*" if offer else "o"))
         g_sat = "#"
@@ -156,27 +230,31 @@ def render_prism_frame(
         g_ring2 = "\\"
         g_node = "o"
 
-    # Mode colors
+    # Core and facet colors
     if sem_mode == "approval":
         core_col = C_RED
-        ring1_col = C_GOLD
-        ring2_col = C_RED
-    elif offer:
+        core_center_col = C_RED
+        facet_col = C_GOLD
+    elif offer or sem_mode == "resolved":
         core_col = C_WHITE
-        ring1_col = C_CYAN
-        ring2_col = C_WHITE
-    elif sem_mode == "halted":
+        core_center_col = C_WHITE
+        facet_col = C_CYAN
+    elif sem_mode in ("halted", "ended"):
         core_col = C_DARK
-        ring1_col = C_DIM
-        ring2_col = C_DIM
-    elif ended:
-        core_col = C_DARK
-        ring1_col = C_DARK
-        ring2_col = C_DARK
+        core_center_col = C_DARK
+        facet_col = C_DARK if ended else C_DIM
+    elif sem_mode == "refracting":
+        core_col = KIND_COLOR_MAP.get(primary_kind, C_CYAN)
+        core_center_col = C_WHITE if primary_kind in ("change", "inspect") else core_col
+        facet_col = core_col
+    elif sem_mode == "attending":
+        core_col = C_CYAN
+        core_center_col = C_WHITE
+        facet_col = C_CYAN
     else:
         core_col = C_CYAN
-        ring1_col = C_CYAN
-        ring2_col = C_VIOLET
+        core_center_col = C_CYAN
+        facet_col = C_CYAN
 
     is_focus = mode == "focus"
     # Responsive geometry scaling: dynamically fills available terminal canvas
@@ -199,18 +277,20 @@ def render_prism_frame(
     speed = 0.0 if (reduced_motion or ended) else (0.4 if calm else 0.8)
     theta = t * speed
 
-    # 1. Outer Polarized Rings
+    # 1. Outer Polarized Rings with living chromatic dispersion
     for i in range(steps):
         phi = (i / steps) * (2.0 * math.pi)
         # Ring 1
         rx1 = cx + int(math.cos(phi + theta) * ring_radius_x)
         ry1 = cy + int(math.sin(phi + theta) * ring_radius_y * 0.7 - math.cos(phi + theta) * 1.5)
-        grid.put(rx1, ry1, g_ring1, ring1_col)
+        col1 = _get_ring_color(1, phi, theta, sem_mode, offer, primary_kind) if use_color else ""
+        grid.put(rx1, ry1, g_ring1, col1)
 
         # Ring 2 (counter-angle)
         rx2 = cx + int(math.cos(phi - theta) * ring_radius_x)
         ry2 = cy + int(math.sin(phi - theta) * ring_radius_y * 0.7 + math.cos(phi - theta) * 1.5)
-        grid.put(rx2, ry2, g_ring2, ring2_col)
+        col2 = _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind) if use_color else ""
+        grid.put(rx2, ry2, g_ring2, col2)
 
     # 2. Refraction rays for active calls
     if lanes:
@@ -234,11 +314,12 @@ def render_prism_frame(
 
     # 3. Subagent branch satellites
     if active_branches > 0:
+        sat_colors = [C_GOLD, C_CYAN, C_VIOLET, C_TEAL]
         for b_idx in range(min(4, active_branches)):
             b_angle = (theta * 0.8) + (b_idx * math.pi / 2.0)
             bx = cx + int(math.cos(b_angle) * (ring_radius_x + 3))
             by = cy + int(math.sin(b_angle) * (ring_radius_y + 2))
-            grid.put(bx, by, g_sat, C_VIOLET)
+            grid.put(bx, by, g_sat, sat_colors[b_idx % len(sat_colors)] if use_color else "")
 
     # 4. Central Faceted Core
     if ring_radius_x >= 24 and ring_radius_y >= 9 and height >= 28:
@@ -267,41 +348,42 @@ def render_prism_frame(
 
     if core_level == 3:
         # Apex facets
-        grid.put(cx, cy - 3, up, core_col)
-        grid.put(cx, cy + 3, dn, core_col)
+        grid.put(cx, cy - 3, up, facet_col)
+        grid.put(cx, cy + 3, dn, facet_col)
         # Outer faceted crown
-        grid.put(cx - 2, cy - 2, sl, core_col)
-        grid.put(cx + 2, cy - 2, bs, core_col)
-        grid.put(cx - 4, cy - 1, sl, core_col)
-        grid.put(cx + 4, cy - 1, bs, core_col)
-        grid.put(cx - 6, cy, lb, core_col)
-        grid.put(cx + 6, cy, rb, core_col)
-        grid.put(cx - 4, cy + 1, bs, core_col)
-        grid.put(cx + 4, cy + 1, sl, core_col)
-        grid.put(cx - 2, cy + 2, bs, core_col)
-        grid.put(cx + 2, cy + 2, sl, core_col)
+        grid.put(cx - 2, cy - 2, sl, facet_col)
+        grid.put(cx + 2, cy - 2, bs, facet_col)
+        grid.put(cx - 4, cy - 1, sl, facet_col)
+        grid.put(cx + 4, cy - 1, bs, facet_col)
+        grid.put(cx - 6, cy, lb, facet_col)
+        grid.put(cx + 6, cy, rb, facet_col)
+        grid.put(cx - 4, cy + 1, bs, facet_col)
+        grid.put(cx + 4, cy + 1, sl, facet_col)
+        grid.put(cx - 2, cy + 2, bs, facet_col)
+        grid.put(cx + 2, cy + 2, sl, facet_col)
         # Inner facets
-        grid.put(cx, cy - 1, up, core_col)
-        grid.put(cx, cy + 1, dn, core_col)
-        grid.put(cx - 2, cy, lb, core_col)
-        grid.put(cx + 2, cy, rb, core_col)
-        grid.put(cx, cy, g_core, C_WHITE if offer else core_col)
+        inner_facet_col = C_WHITE if (offer or sem_mode == "attending") else facet_col
+        grid.put(cx, cy - 1, up, inner_facet_col)
+        grid.put(cx, cy + 1, dn, inner_facet_col)
+        grid.put(cx - 2, cy, lb, inner_facet_col)
+        grid.put(cx + 2, cy, rb, inner_facet_col)
+        grid.put(cx, cy, g_core, core_center_col)
     elif core_level == 2:
-        grid.put(cx, cy - 2, up, core_col)
-        grid.put(cx, cy + 2, dn, core_col)
-        grid.put(cx - 2, cy - 1, sl, core_col)
-        grid.put(cx + 2, cy - 1, bs, core_col)
-        grid.put(cx - 4, cy, lb, core_col)
-        grid.put(cx + 4, cy, rb, core_col)
-        grid.put(cx - 2, cy + 1, bs, core_col)
-        grid.put(cx + 2, cy + 1, sl, core_col)
-        grid.put(cx, cy, g_core, C_WHITE if offer else core_col)
+        grid.put(cx, cy - 2, up, facet_col)
+        grid.put(cx, cy + 2, dn, facet_col)
+        grid.put(cx - 2, cy - 1, sl, facet_col)
+        grid.put(cx + 2, cy - 1, bs, facet_col)
+        grid.put(cx - 4, cy, lb, facet_col)
+        grid.put(cx + 4, cy, rb, facet_col)
+        grid.put(cx - 2, cy + 1, bs, facet_col)
+        grid.put(cx + 2, cy + 1, sl, facet_col)
+        grid.put(cx, cy, g_core, core_center_col)
     else:
-        grid.put(cx - 2, cy, lb, core_col)
-        grid.put(cx + 2, cy, rb, core_col)
-        grid.put(cx, cy - 1, up, core_col)
-        grid.put(cx, cy + 1, dn, core_col)
-        grid.put(cx, cy, g_core, C_WHITE if offer else core_col)
+        grid.put(cx - 2, cy, lb, facet_col)
+        grid.put(cx + 2, cy, rb, facet_col)
+        grid.put(cx, cy - 1, up, facet_col)
+        grid.put(cx, cy + 1, dn, facet_col)
+        grid.put(cx, cy, g_core, core_center_col)
 
     # 5. Cyclops Link: Spark and Keeper in their own looks at their seats, and the threads they declare
     hud_y = height - 2
@@ -312,7 +394,7 @@ def render_prism_frame(
     # 6. Status Banner
     display_hover = hover if unicode_mode else hover.replace("·", "-")
     status_bar = f" {g_core}  {display_hover} "
-    grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, core_col)
+    grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, facet_col)
 
     if is_focus:
         sub_info = f"Calls: {active_calls}  Branches: {active_branches}  Offer: {offer or 'none'}  Comp: {mode}"
