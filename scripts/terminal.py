@@ -639,7 +639,16 @@ def main():
         sys.exit(0)
 
     normalized_args = []
+    skip_next = False
     for arg in raw_args:
+        if skip_next:
+            skip_next = False
+            normalized_args.append(arg)
+            continue
+        if arg in ("--mode", "--feed", "--demo-state"):
+            normalized_args.append(arg)
+            skip_next = True
+            continue
         if arg == "focus":
             normalized_args.extend(["--mode", "focus"])
         elif arg == "once":
@@ -658,7 +667,7 @@ def main():
 
     # Resolve feed path
     feed_dir = args.feed
-    if not feed_dir and not args.demo and not args.demo_state and presence_feed:
+    if not feed_dir and not args.demo and not args.demo_state and presence_feed and hasattr(presence_feed, "find_active_feed"):
         feed_dir = presence_feed.find_active_feed()
 
     # Cyclops Link: only drawn while Prism is linked; demos never show live peers
