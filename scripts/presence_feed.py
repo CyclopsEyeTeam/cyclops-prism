@@ -17,12 +17,34 @@ from typing import Any, Dict, List, Optional, Tuple
 import feed_state
 
 
+def studio_target(environ: Optional[Dict[str, str]] = None) -> Optional[Tuple[Path, str]]:
+    """Return (presence_root, studio_session) if CYCLOPS_SESSION_ID and HOME are valid."""
+    env = os.environ if environ is None else environ
+    session = env.get("CYCLOPS_SESSION_ID")
+    home = env.get("HOME")
+    if not isinstance(session, str) or not feed_state.SESSION_ID.fullmatch(session) or not home:
+        return None
+
+    override = env.get("CYCLOPS_PRESENCE_ROOT") or env.get("PRISM_PRESENCE_ROOT")
+    if override:
+        root = Path(override)
+    else:
+        state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
+        root = state_home / "cyclops-presence"
+    return root, session
+
+
 def resolve_target(environ: Optional[Dict[str, str]] = None, payload: Optional[Dict[str, Any]] = None) -> Tuple[Path, str]:
     """Resolve (presence_root, session_id) from environment or hook payload."""
     env = os.environ if environ is None else environ
     home = env.get("HOME", "/tmp")
 
-    # 1. Antigravity conversationId from hook payload
+    # 1. Cyclops Studio session binding via environment
+    target = studio_target(env)
+    if target:
+        return target
+
+    # 2. Antigravity conversationId from hook payload
     session_id = "default"
     if isinstance(payload, dict):
         conv_id = payload.get("conversationId")
@@ -35,7 +57,7 @@ def resolve_target(environ: Optional[Dict[str, str]] = None, payload: Optional[D
                 session_id = hashlib.sha256(conv_id.encode("utf-8")).hexdigest()[:32]
 
     # 3. Environment override or default standalone state root
-    override = env.get("PRISM_PRESENCE_ROOT")
+    override = env.get("PRISM_PRESENCE_ROOT") or env.get("CYCLOPS_PRESENCE_ROOT")
     if override:
         root = Path(override)
     else:
@@ -248,7 +270,7 @@ def find_host_identity() -> Optional[Dict[str, int]]:
     return process_identity(os.getppid())
 
 
-def new_record(session_id: str, *, run: Optional[str] = None, started_at: Optional[float] = None, host_identity: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+def new_record(session_id: str, *, run: Optional[str] = None, started_at: Optional[float] = None, host_identity: Optional[Dict[str, int]] = None, conversation_id: Optional[str] = None) -> Dict[str, Any]:
     """Create a new in-memory feed record for a session."""
     if not isinstance(session_id, str) or not feed_state.SESSION_ID.fullmatch(session_id):
         raise ValueError("invalid session ID")
@@ -261,6 +283,7 @@ def new_record(session_id: str, *, run: Optional[str] = None, started_at: Option
         "owner": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
         "run": run or uuid.uuid4().hex,
         "startedAt": float(now),
+        "conversationId": conversation_id,
         "seq": 0,
         "checkpoint": feed_state.empty_checkpoint(),
         "pendingEvents": [],
@@ -378,23 +401,27 @@ def flush(
     record: Dict[str, Any],
     presence_root: Path,
     *,
-    session_id: str,
+    session_id: Optional[str] = None,
+    studio_session: Optional[str] = None,
     now: Optional[float] = None,
     force: bool = False,
     force_live: bool = False,
 ) -> bool:
     """Flush durable.json and live.json within documented cadences."""
+    sid = session_id or studio_session
+    if not sid:
+        return False
     if not isinstance(record, dict) or record.get("v") != feed_state.VERSION:
         return False
     stamp = float(time.time() if now is None else now)
     if not feed_state.is_finite_number(stamp):
         return False
-    if not isinstance(session_id, str) or not feed_state.SESSION_ID.fullmatch(session_id):
+    if not isinstance(sid, str) or not feed_state.SESSION_ID.fullmatch(sid):
         return False
-    if hashlib.sha256(session_id.encode("utf-8")).hexdigest() != record.get("owner"):
+    if hashlib.sha256(sid.encode("utf-8")).hexdigest() != record.get("owner"):
         return False
 
-    target_dir = Path(presence_root) / session_id / feed_state.ENTITY
+    target_dir = Path(presence_root) / sid / feed_state.ENTITY
     first = record.get("durableAt") is None or record.get("liveAt") is None
     durable_due = force or first or (
         record.get("durableDirty") and (stamp - (record.get("durableAt") or -math.inf) >= feed_state.DURABLE_INTERVAL)
@@ -506,6 +533,7 @@ def start_daemon(data_root: Path, session_id: str, presence_root: Path) -> None:
 
         child_env = dict(os.environ)
         child_env["PRISM_PRESENCE_ROOT"] = str(Path(presence_root))
+        child_env["CYCLOPS_PRESENCE_ROOT"] = str(Path(presence_root))
         proc = subprocess.Popen(
             [
                 sys.executable,

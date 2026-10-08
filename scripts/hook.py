@@ -100,16 +100,23 @@ def handle_event(payload: dict) -> None:
                 except (ValueError, OSError):
                     record = None
 
+            conv_id = payload.get("conversationId")
             if not isinstance(record, dict) or record.get("v") != feed_state.VERSION:
                 host_identity = presence_feed.find_host_identity()
-                record = presence_feed.new_record(session_id, host_identity=host_identity)
+                record = presence_feed.new_record(session_id, host_identity=host_identity, conversation_id=conv_id)
+            elif conv_id and record.get("conversationId") and conv_id != record.get("conversationId"):
+                # Conversation identity changed within session: cycle run
+                host_identity = presence_feed.find_host_identity()
+                record = presence_feed.new_record(session_id, host_identity=host_identity, conversation_id=conv_id)
+            elif conv_id and not record.get("conversationId"):
+                record["conversationId"] = conv_id
 
             # Adapt Antigravity hook payload to normalized Presence event
             next_seq = record.get("seq", 0) + 1
             event = activity.adapt_hook_event(payload, sequence=next_seq)
             if event:
                 presence_feed.append_event(record, event)
-                presence_feed.flush(record, presence_root, session_id=session_id)
+                presence_feed.flush(record, presence_root, session_id=session_id, force_live=True)
                 _link_publish(record, event, session_id)
                 presence_feed._atomic_json(state_path, record)
 
@@ -158,8 +165,21 @@ def main() -> None:
     except Exception:
         pass
 
-    # Antigravity observer hooks expect empty JSON object on stdout
-    print("{}")
+    # Antigravity hook response contract:
+    # PreToolUse requires {"decision": "allow"} on stdout to permit tool execution.
+    # All other hooks (PreInvocation, PostInvocation, PostToolUse, Stop) expect empty JSON object {}.
+    if event_name:
+        is_pre_tool = (event_name == "PreToolUse")
+    else:
+        is_pre_tool = (
+            payload.get("hookEvent") == "PreToolUse"
+            or payload.get("hook_event_name") == "PreToolUse"
+            or ("toolCall" in payload and "toolName" not in payload and "error" not in payload and "result" not in payload)
+        )
+    if is_pre_tool:
+        print(json.dumps({"decision": "allow"}))
+    else:
+        print("{}")
 
 
 if __name__ == "__main__":

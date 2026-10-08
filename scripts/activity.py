@@ -110,9 +110,11 @@ def adapt_hook_event(
     conv_id = payload.get("conversationId", "")
     step_idx = payload.get("stepIdx", 0)
 
-    # 1. PreInvocation -> turn.attend
+    # 1. PreInvocation -> session.wake or turn.attend
     if hook_event == "PreInvocation":
-        return {"seq": sequence, "t": stamp, "type": "turn.attend"}
+        inv_num = payload.get("invocationNum", 1)
+        event_type = "session.wake" if inv_num == 1 else "turn.attend"
+        return {"seq": sequence, "t": stamp, "type": event_type}
 
     # 2. PreToolUse -> approval.request, branch.start, or refract.start
     elif hook_event == "PreToolUse":
@@ -205,13 +207,19 @@ class PrismState:
         if ev_type == "refract.start" and key:
             if len(self.active_calls) < feed_state.ACTIVE_CALLS_LIMIT:
                 self.active_calls[key] = {"kind": kind or "other", "seq": seq, "t": t}
-        elif ev_type in {"refract.resolve", "refract.halt"} and key:
-            self.active_calls.pop(key, None)
+        elif ev_type in {"refract.resolve", "refract.halt"}:
+            if key and key in self.active_calls:
+                self.active_calls.pop(key, None)
+            elif self.active_calls:
+                self.active_calls.pop(next(iter(self.active_calls)), None)
         elif ev_type == "branch.start" and key:
             if len(self.active_branches) < feed_state.ACTIVE_BRANCHES_LIMIT:
                 self.active_branches[key] = {"seq": seq, "t": t}
-        elif ev_type == "branch.resolve" and key:
-            self.active_branches.pop(key, None)
+        elif ev_type == "branch.resolve":
+            if key and key in self.active_branches:
+                self.active_branches.pop(key, None)
+            elif self.active_branches:
+                self.active_branches.pop(next(iter(self.active_branches)), None)
 
         # 3. Update overall mode & offer
         if ev_type == "session.wake":
@@ -240,6 +248,8 @@ class PrismState:
             self.mode = "refracting"
         elif self.active_branches:
             self.mode = "branching"
+        elif self.mode in {"refracting", "branching"}:
+            self.mode = "attending"
 
     def state_summary(self) -> str:
         """Generate a truthful, human-readable one-line state string."""
