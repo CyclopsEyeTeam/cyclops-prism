@@ -101,12 +101,20 @@ def handle_event(payload: dict) -> None:
                     record = None
 
             conv_id = payload.get("conversationId")
+            host_identity = presence_feed.find_host_identity()
+
+            producer_changed = False
+            if isinstance(record, dict) and record.get("producer") and host_identity:
+                if record["producer"] != host_identity:
+                    producer_changed = True
+
             if not isinstance(record, dict) or record.get("v") != feed_state.VERSION:
-                host_identity = presence_feed.find_host_identity()
+                record = presence_feed.new_record(session_id, host_identity=host_identity, conversation_id=conv_id)
+            elif producer_changed:
+                # Producer process identity changed (e.g. host restarted): cycle run
                 record = presence_feed.new_record(session_id, host_identity=host_identity, conversation_id=conv_id)
             elif conv_id and record.get("conversationId") and conv_id != record.get("conversationId"):
                 # Conversation identity changed within session: cycle run
-                host_identity = presence_feed.find_host_identity()
                 record = presence_feed.new_record(session_id, host_identity=host_identity, conversation_id=conv_id)
             elif conv_id and not record.get("conversationId"):
                 record["conversationId"] = conv_id
@@ -136,48 +144,25 @@ def main() -> None:
 
     payload = {}
     try:
-        # Read bounded payload from stdin (max 2MB, short timeout)
-        raw = bytearray()
-        deadline = time.monotonic() + 0.3
-        while len(raw) <= feed_state.MAX_RECORD_BYTES:
-            rem = deadline - time.monotonic()
-            if rem <= 0:
-                break
-            r, _, _ = select.select([sys.stdin], [], [], rem)
-            if not r:
-                break
-            chunk = os.read(sys.stdin.fileno(), 16384)
-            if not chunk:
-                break
-            raw.extend(chunk)
-            if len(raw) > feed_state.MAX_RECORD_BYTES:
-                break
-            try:
-                p = json.loads(raw)
-                if isinstance(p, dict):
-                    payload = p
-                    if event_name:
-                        payload["hookEvent"] = event_name
-                    handle_event(payload)
-                break
-            except (ValueError, UnicodeError):
-                continue
+        # Read bounded payload from stdin (max 2MB)
+        raw = sys.stdin.read(feed_state.MAX_RECORD_BYTES)
+        if raw:
+            p = json.loads(raw)
+            if isinstance(p, dict):
+                payload = p
+                if event_name:
+                    payload["hookEvent"] = event_name
+                handle_event(payload)
     except Exception:
         pass
 
-    # Antigravity hook response contract:
-    # PreToolUse requires {"decision": "allow"} on stdout to permit tool execution.
-    # All other hooks (PreInvocation, PostInvocation, PostToolUse, Stop) expect empty JSON object {}.
-    if event_name:
-        is_pre_tool = (event_name == "PreToolUse")
-    else:
-        is_pre_tool = (
-            payload.get("hookEvent") == "PreToolUse"
-            or payload.get("hook_event_name") == "PreToolUse"
-            or ("toolCall" in payload and "toolName" not in payload and "error" not in payload and "result" not in payload)
-        )
-    if is_pre_tool:
-        print(json.dumps({"decision": "allow"}))
+    # Antigravity hook observer response contract:
+    # Prism is strictly an observer companion. It must never usurp the user's decision
+    # or auto-approve tool execution. Return empty object {} on stdout unless the payload
+    # already contained an explicit decision, and never force allow.
+    decision = payload.get("decision")
+    if decision and isinstance(decision, str):
+        print(json.dumps({"decision": decision}))
     else:
         print("{}")
 

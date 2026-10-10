@@ -210,16 +210,12 @@ class PrismState:
         elif ev_type in {"refract.resolve", "refract.halt"}:
             if key and key in self.active_calls:
                 self.active_calls.pop(key, None)
-            elif self.active_calls:
-                self.active_calls.pop(next(iter(self.active_calls)), None)
         elif ev_type == "branch.start" and key:
             if len(self.active_branches) < feed_state.ACTIVE_BRANCHES_LIMIT:
                 self.active_branches[key] = {"seq": seq, "t": t}
         elif ev_type == "branch.resolve":
             if key and key in self.active_branches:
                 self.active_branches.pop(key, None)
-            elif self.active_branches:
-                self.active_branches.pop(next(iter(self.active_branches)), None)
 
         # 3. Update overall mode & offer
         if ev_type == "session.wake":
@@ -232,7 +228,7 @@ class PrismState:
             self.mode = "approval"
         elif ev_type == "turn.resolve":
             self.mode = "resolved"
-            self.offer = "crystallize"
+            self.offer = event.get("offer")
         elif ev_type == "turn.halt":
             self.mode = "halted"
             self.offer = None
@@ -250,6 +246,11 @@ class PrismState:
             self.mode = "branching"
         elif self.mode in {"refracting", "branching"}:
             self.mode = "attending"
+
+    @property
+    def person_required(self) -> bool:
+        """Yielding indicator: true when user consent/permission prompt is awaiting response."""
+        return self.mode == "approval"
 
     def state_summary(self) -> str:
         """Generate a truthful, human-readable one-line state string."""

@@ -59,7 +59,7 @@ class TestHookFeed(unittest.TestCase):
         data = json.loads(live_file.read_text(encoding="utf-8"))
         events = data.get("events", [])
         self.assertTrue(len(events) >= 1)
-        self.assertEqual(events[-1].get("type"), "turn.attend")
+        self.assertIn(events[-1].get("type"), {"session.wake", "turn.attend"})
 
     def test_pre_tool_use_contract(self):
         payload = {

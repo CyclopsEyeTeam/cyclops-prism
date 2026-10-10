@@ -18,11 +18,12 @@ import feed_state
 
 
 def studio_target(environ: Optional[Dict[str, str]] = None) -> Optional[Tuple[Path, str]]:
-    """Return (presence_root, studio_session) if CYCLOPS_SESSION_ID and HOME are valid."""
+    """Return (presence_root, studio_session) if CYCLOPS_SESSION_ID, explicit publication opt-in, and HOME are valid."""
     env = os.environ if environ is None else environ
     session = env.get("CYCLOPS_SESSION_ID")
     home = env.get("HOME")
-    if not isinstance(session, str) or not feed_state.SESSION_ID.fullmatch(session) or not home:
+    opt_in = env.get("CYCLOPS_PRESENCE_FEED") == "1" or env.get("CYCLOPS_STUDIO") == "1"
+    if not opt_in or not isinstance(session, str) or not feed_state.SESSION_ID.fullmatch(session) or not home:
         return None
 
     override = env.get("CYCLOPS_PRESENCE_ROOT") or env.get("PRISM_PRESENCE_ROOT")
@@ -39,22 +40,26 @@ def resolve_target(environ: Optional[Dict[str, str]] = None, payload: Optional[D
     env = os.environ if environ is None else environ
     home = env.get("HOME", "/tmp")
 
-    # 1. Cyclops Studio session binding via environment
+    # 1. Cyclops Studio session binding via environment (requires explicit opt-in)
     target = studio_target(env)
     if target:
         return target
 
-    # 2. Antigravity conversationId from hook payload
-    session_id = "default"
+    # 2. Standalone Antigravity session identity derived from conversationId or host process
+    session_id = None
     if isinstance(payload, dict):
         conv_id = payload.get("conversationId")
         if isinstance(conv_id, str) and conv_id:
-            # Clean conversation ID to meet SESSION_ID regex
             cleaned = re.sub(r"[^A-Za-z0-9_.-]", "_", conv_id)[:80]
             if feed_state.SESSION_ID.fullmatch(cleaned):
                 session_id = cleaned
             else:
                 session_id = hashlib.sha256(conv_id.encode("utf-8")).hexdigest()[:32]
+
+    if not session_id:
+        host = find_host_identity()
+        seed = f"{host['pid']}:{host['startTicks']}" if host else f"standalone-{os.getpid()}-{time.time()}"
+        session_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:32]
 
     # 3. Environment override or default standalone state root
     override = env.get("PRISM_PRESENCE_ROOT") or env.get("CYCLOPS_PRESENCE_ROOT")
@@ -248,8 +253,9 @@ def producer_alive(identity: Optional[Dict[str, Any]]) -> bool:
 
 
 def find_host_identity() -> Optional[Dict[str, int]]:
-    """Identify the nearest ancestor host process (e.g. agy, antigravity) or session leader."""
+    """Identify the nearest ancestor host process (e.g. agy, antigravity) or session leader, rejecting transient wrappers."""
     pid = os.getppid()
+    candidates = []
     for _ in range(16):
         try:
             stat_text = Path(f"/proc/{pid}/stat").read_text()
@@ -258,8 +264,13 @@ def find_host_identity() -> Optional[Dict[str, int]]:
             argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
             cmd = b" ".join(argv).lower()
 
-            if any(k in comm or k.encode() in cmd for k in ["agy", "antigravity", "cortex"]):
-                return process_identity(pid)
+            ident = process_identity(pid)
+            if ident:
+                candidates.append((comm, cmd, ident))
+
+            if comm not in {"sh", "dash", "bash", "python", "python3"}:
+                if any(k in comm or k.encode() in cmd for k in ["agy", "antigravity", "cortex"]):
+                    return ident
 
             parent = int(fields[1])
             if parent <= 1 or parent == pid:
@@ -267,7 +278,13 @@ def find_host_identity() -> Optional[Dict[str, int]]:
             pid = parent
         except (OSError, ValueError, IndexError):
             break
-    return process_identity(os.getppid())
+
+    # If no explicit host signature was found, skip transient wrapper shells
+    for comm, cmd, ident in candidates:
+        if comm not in {"sh", "dash", "bash", "python", "python3"}:
+            return ident
+
+    return candidates[-1][2] if candidates else process_identity(os.getppid())
 
 
 def new_record(session_id: str, *, run: Optional[str] = None, started_at: Optional[float] = None, host_identity: Optional[Dict[str, int]] = None, conversation_id: Optional[str] = None) -> Dict[str, Any]:
