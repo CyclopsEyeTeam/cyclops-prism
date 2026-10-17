@@ -29,7 +29,7 @@ class TestPluginContract(unittest.TestCase):
         hook_def = data.get("cyclops-prism") or data.get("gemini-prism")
         self.assertIn("PreInvocation", hook_def)
         self.assertIn("PostInvocation", hook_def)
-        self.assertIn("PreToolUse", hook_def)
+        self.assertNotIn("PreToolUse", hook_def)
         self.assertIn("PostToolUse", hook_def)
         self.assertIn("Stop", hook_def)
 
