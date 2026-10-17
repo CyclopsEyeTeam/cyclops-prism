@@ -2,6 +2,7 @@
 
 ## 1.2.1 - Clipboard Integration & Cold-Start Resilience
 
+- **CLI Companion Layout Modifiers (`side` / `top`)**: Supported positional and flag layout selectors (`agy --prism side`, `agy --prism top`, `agy-prism side`, `agy-prism top`, `--prism-side`, `--prism-top`) without leaking layout keywords to Antigravity CLI, preventing immediate session termination. Added graceful error retention on non-zero CLI exit in tmux.
 - **System Clipboard Integration (`xclip` / `wl-copy`)**: Added automatic system clipboard piping on mouse drag release in tmux companion sessions (`MouseDragEnd1Pane`), along with native keyboard copy-mode bindings (`Enter`, `y`, `c`, `Ctrl+c`) and right-click support.
 - **Terminal Bypass via Shift**: Retained native terminal selection bypass so holding `Shift` while dragging or right-clicking enables standard terminal emulator context menus and `Ctrl+Shift+c`.
 - **New `/copy` Slash Command**: Introduced `/copy` command to copy text, code blocks, or the latest assistant response directly into the OS clipboard.
