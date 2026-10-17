@@ -197,7 +197,7 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
         self.assertEqual(p_live["model"], "prism-muse")
         self.assertNotIn("Ch.", p_live["title"])
 
-        # 2. `relative` mode generates work-story chapters shaped by active tools & spectrum
+        # 2. `work` (and `relative`) mode generates work-story chapters shaped by active tools & spectrum
         work_state = {
             "mode": "refracting",
             "activeBranches": 0,
@@ -205,7 +205,7 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
             "spectrum": {"inspect": 3, "change": 2, "execute": 1},
         }
         p_rel = painter.generate_living_painting(
-            step_index=3, paint_mode="relative", state_data=work_state
+            step_index=3, paint_mode="work", state_data=work_state
         )
         self.assertEqual(p_rel["model"], "prism-story-muse")
         self.assertIn("Ch.3 ·", p_rel["title"])
@@ -213,15 +213,18 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
         self.assertIn("3 inspect", p_rel["thought"])
         self.assertIn("3 change", p_rel["thought"])
 
-        # 3. Top-right toolbar renders `🎨 live` / `🎨 relative` toggle with `tool_paint_mode` hitbox
+        # 3. Top-right toolbar renders `🎨 Live` / `🎨 Work` toggle with `tool_paint_mode` hitbox
         state = {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "hover": "Prism · ready"}
-        expr = {"v": 1, "painting": p_rel, "paintMode": "relative", "paintStats": {"paintings": 3, "tokens": 6300}}
+        expr = {"v": 1, "painting": p_rel, "paintMode": "work", "paintStats": {"paintings": 3, "tokens": 6300}}
         hitboxes = []
-        frame = terminal.render_prism_frame(state, 72, 34, t=1.0, expression=expr, ui_state={"paint_mode": "relative"}, hitboxes=hitboxes)
+        frame = terminal.render_prism_frame(state, 72, 34, t=1.0, expression=expr, ui_state={"paint_mode": "work"}, hitboxes=hitboxes)
         plain = terminal._strip_colors(frame)
-        self.assertIn("🎨 relative", plain)
+        self.assertIn("🎨 Work", plain)
         actions = {hb["action"] for hb in hitboxes}
         self.assertIn("tool_paint_mode", actions)
+
+        frame_live = terminal.render_prism_frame(state, 72, 34, t=1.0, expression=expr, ui_state={"paint_mode": "live"})
+        self.assertIn("🎨 Live", terminal._strip_colors(frame_live))
 
     def test_roll_music_and_mp4_generation(self):
         with tempfile.TemporaryDirectory() as tmp:

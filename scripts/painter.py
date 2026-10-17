@@ -2155,8 +2155,8 @@ def generate_living_painting(
     paint_mode: str = "live",
     state_data: Optional[dict] = None,
 ) -> dict:
-    """Generate a unique, poetic prismatic painting (`paint_mode='live'`) or work-story chapter (`paint_mode='relative'`)."""
-    if str(paint_mode or "live").lower().strip() == "relative":
+    """Generate a unique, poetic prismatic painting (`paint_mode='live'`) or work-story chapter (`paint_mode='work'`)."""
+    if str(paint_mode or "live").lower().strip() in ("work", "relative", "story-mode"):
         return generate_relative_painting(state_data=state_data, now=now, step_index=step_index, mood_hint=mood_hint)
     ts = time.time() if now is None else float(now)
     seed_base = int(ts * 1000) ^ ((step_index or 0) * 2654435761)

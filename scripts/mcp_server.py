@@ -121,11 +121,8 @@ def write_expression(
         if isinstance(art, list)
         else prev.get("art", [])
     )
-    clean_paint_mode = (
-        paint_mode.lower().strip()
-        if isinstance(paint_mode, str) and paint_mode.lower().strip() in ("live", "relative")
-        else (prev.get("paintMode") if prev.get("paintMode") in ("live", "relative") else "live")
-    )
+    raw_pm = str(paint_mode if paint_mode is not None else (prev.get("paintMode") or "live")).lower().strip()
+    clean_paint_mode = "work" if raw_pm in ("work", "relative", "story-mode") else "live"
     ttl_val = float(ttl) if isinstance(ttl, (int, float)) and ttl >= 0 else 0.0
 
     active_painting = prev.get("painting")

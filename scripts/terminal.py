@@ -1025,9 +1025,8 @@ def render_prism_frame(
     chat_msgs = ui.get("chat_messages") if isinstance(ui.get("chat_messages"), list) else (
         expr.get("chat") if isinstance(expr.get("chat"), list) else []
     )
-    paint_mode = str(ui.get("paint_mode") or expr.get("paintMode") or "live").lower().strip()
-    if paint_mode not in ("live", "relative"):
-        paint_mode = "live"
+    raw_pm = str(ui.get("paint_mode") or expr.get("paintMode") or "live").lower().strip()
+    paint_mode = "work" if raw_pm in ("work", "relative", "story-mode") else "live"
 
     # If story is active, show the current story page painting
     shown_painting = expr_painting
@@ -1041,7 +1040,7 @@ def render_prism_frame(
         # §2 Only show the tools when there's at least one painting and room to spare, so they never shrink the painting
         if width >= 34 and height >= 20:
             if unicode_mode:
-                mode_lbl = "🎨 relative" if paint_mode == "relative" else "🎨 live"
+                mode_lbl = "🎨 Work" if paint_mode == "work" else "🎨 Live"
                 tool_defs = [
                     (mode_lbl, "tool_paint_mode"),
                     ("▶ story", "tool_story"),
@@ -1053,7 +1052,7 @@ def render_prism_frame(
                 if width >= 60:
                     tool_defs.append(("⧉ copy", "tool_copy"))
             else:
-                mode_lbl = "[m] rel" if paint_mode == "relative" else "[m] live"
+                mode_lbl = "[m] Work" if paint_mode == "work" else "[m] Live"
                 tool_defs = [
                     (mode_lbl, "tool_paint_mode"),
                     ("> story", "tool_story"),
@@ -1073,7 +1072,7 @@ def render_prism_frame(
             for lbl, act in tool_defs:
                 lbl_w = sum(_char_cells(c) for c in lbl)
                 is_active_tool = (
-                    (act == "tool_paint_mode" and paint_mode == "relative")
+                    (act == "tool_paint_mode" and paint_mode == "work")
                     or (act == "tool_story" and story_st and story_st.get("active"))
                     or (act == "tool_convert" and menu_step in (1, 2))
                     or (act == "tool_chat" and chat_active)
@@ -1748,11 +1747,11 @@ def handle_paint(argv: List[str]) -> None:
         sys.exit(1)
 
     pp = argparse.ArgumentParser(prog="prism paint", description="Paint a 24-bit half-block artwork below Prism in her terminal companion")
-    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('live', 'relative', 'opening', 'convert', 'clear', 'off'), or title")
+    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('live', 'work', 'opening', 'convert', 'clear', 'off'), or title")
     pp.add_argument("--title", default=None, help="Custom painting title ('✎ Title')")
     pp.add_argument("--thought", default=None, help="Optional thought line for Prism to say above the painting")
     pp.add_argument("--mood", choices=list(MOOD_STOPS.keys()), default=None, help="Chromatic mood palette")
-    pp.add_argument("--mode", dest="paint_mode", choices=["live", "relative"], default=None, help="Painting muse mode: 'live' (poetic) or 'relative' (work story)")
+    pp.add_argument("--mode", dest="paint_mode", choices=["live", "work", "relative"], default=None, help="Painting muse mode: 'live' (poetic) or 'work' (work story)")
     pp.add_argument("--shape", choices=["wide", "square", "tall"], default=None, help="Canvas shape")
     pp.add_argument("--opening", action="store_true", help="Seed a session opening painting from only the hour, month, and one random word")
     pp.add_argument("--json", dest="json_marks", default=None, help="Raw JSON string with {'title': ..., 'marks': [...]}")
@@ -1772,10 +1771,11 @@ def handle_paint(argv: List[str]) -> None:
 
     cur = mcp_server.read_expression() or {}
     selected_mode = parsed.paint_mode
-    if not selected_mode and words and words[0].lower() in ("live", "relative", "story-mode", "work"):
-        selected_mode = "relative" if words[0].lower() in ("relative", "story-mode", "work") else "live"
+    if not selected_mode and words and words[0].lower() in ("live", "work", "relative", "story-mode"):
+        selected_mode = "work" if words[0].lower() in ("work", "relative", "story-mode") else "live"
         words = words[1:]
-    effective_mode = selected_mode or str(cur.get("paintMode") or "live")
+    raw_eff = str(selected_mode or cur.get("paintMode") or "live").lower().strip()
+    effective_mode = "work" if raw_eff in ("work", "relative", "story-mode") else "live"
 
     if parsed.opening or (words and words[0].lower() == "opening"):
         seed_w = words[1] if len(words) > 1 else None
@@ -1789,7 +1789,7 @@ def handle_paint(argv: List[str]) -> None:
         preset_idx = None
         if words and words[0].isdigit():
             preset_idx = int(words[0])
-        elif words and words[0].lower() not in ("new", "living", "auto", "live", "relative"):
+        elif words and words[0].lower() not in ("new", "living", "auto", "live", "work", "relative"):
             kw = " ".join(words).lower()
             for idx_c, c_p in enumerate(painter.CURATED_PAINTINGS):
                 if kw in c_p["title"].lower() or kw in c_p["mood"].lower():
@@ -1829,7 +1829,8 @@ def handle_paint(argv: List[str]) -> None:
         res = painter.convert_painting(paint_obj, gallery_dir=Path.cwd() / "prism-paintings", way=parsed.way)
         svg_note = f" · exported {parsed.way} SVG & PNG to {res['svg']}"
     stats = payload.get("paintStats") or {}
-    print(f"✎ Painted below Prism ({effective_mode}): \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks, session paintings: {stats.get('paintings', 1)}){svg_note}")
+    mode_tag = "Work" if effective_mode == "work" else "Live"
+    print(f"✎ Painted below Prism ({mode_tag}): \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks, session paintings: {stats.get('paintings', 1)}){svg_note}")
 
 
 def handle_convert(argv: List[str]) -> None:
@@ -2205,17 +2206,18 @@ def main():
             if isinstance(expr_state, dict) and isinstance(expr_state.get("chat"), list)
             else []
         )
-        initial_paint_mode = (
-            str(expr_state.get("paintMode") or "live")
+        raw_init_pm = (
+            str(expr_state.get("paintMode") or "live").lower().strip()
             if isinstance(expr_state, dict)
             else "live"
         )
+        initial_paint_mode = "work" if raw_init_pm in ("work", "relative", "story-mode") else "live"
         ui_state: Dict[str, Any] = {
             "story": None,
             "menu_step": 0,
             "convert_target": "this",
             "session_count": 1,
-            "paint_mode": initial_paint_mode if initial_paint_mode in ("live", "relative") else "live",
+            "paint_mode": initial_paint_mode,
             "chat_active": bool(args.chat),
             "chat_input": "",
             "chat_messages": list(initial_chat),
@@ -2336,7 +2338,7 @@ def main():
             st = ui_state.get("story")
             if action == "tool_paint_mode":
                 cur_pm = str(ui_state.get("paint_mode") or "live")
-                new_pm = "relative" if cur_pm == "live" else "live"
+                new_pm = "work" if cur_pm == "live" else "live"
                 ui_state["paint_mode"] = new_pm
                 if painter is not None and mcp_server is not None:
                     now_t = time.time()
@@ -2621,8 +2623,9 @@ def main():
                     if isinstance(expr_state, dict):
                         if isinstance(expr_state.get("chat"), list):
                             ui_state["chat_messages"] = expr_state["chat"]
-                        if expr_state.get("paintMode") in ("live", "relative"):
-                            ui_state["paint_mode"] = expr_state["paintMode"]
+                        raw_pm_expr = str(expr_state.get("paintMode") or "").lower().strip()
+                        if raw_pm_expr in ("live", "work", "relative", "story-mode"):
+                            ui_state["paint_mode"] = "work" if raw_pm_expr in ("work", "relative", "story-mode") else "live"
                     if painter is not None:
                         latest_shared = painter.load_session_paintings(Path.cwd())
                         if latest_shared:
