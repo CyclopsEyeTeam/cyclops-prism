@@ -11,9 +11,9 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 # Resolve binaries
-AGY_BIN="${AGY_BIN:-$(command -v agy || echo "$HOME/.local/bin/agy")}"
+AGY_BIN="${AGY_BIN:-$(command -v agy || echo "${HOME:-}/.local/bin/agy")}"
 PRISM_BIN="${PRISM_BIN:-$(command -v prism || echo "$SCRIPT_DIR/prism")}"
-TMUX_BIN="${TMUX_BIN:-$(command -v tmux || echo "$HOME/.local/bin/tmux")}"
+TMUX_BIN="${TMUX_BIN:-$(command -v tmux || echo "${HOME:-}/.local/bin/tmux")}"
 
 if [ ! -x "$PRISM_BIN" ]; then
     PRISM_BIN="$SCRIPT_DIR/prism"
@@ -28,16 +28,60 @@ if [[ "$CALL_NAME" == *"prismtop"* ]]; then
     LAYOUT="top"
 fi
 
-for arg in "$@"; do
-    if [ "$arg" = "--prismtop" ] || [ "$arg" = "--cyclops-prismtop" ]; then
-        LAYOUT="top"
-    elif [ "$arg" = "--prism" ] || [ "$arg" = "--cyclops-prism" ]; then
-        LAYOUT="side"
-    elif [ "$arg" = "--native" ] || [ "$arg" = "--window" ] || [ "$arg" = "--native-window" ]; then
-        USE_WINDOW=1
-    else
-        FILTERED_ARGS+=("$arg")
-    fi
+while [ $# -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+        --prismtop|--cyclops-prismtop|--prism-top|--cyclops-prism-top|--top|--prism=top|--cyclops-prism=top)
+            LAYOUT="top"
+            shift
+            ;;
+        --prism-side|--cyclops-prism-side|--side|--prism=side|--cyclops-prism=side)
+            LAYOUT="side"
+            shift
+            ;;
+        --prism|--cyclops-prism)
+            if [ $# -ge 2 ] && [ "$2" = "top" ]; then
+                LAYOUT="top"
+                shift 2
+            elif [ $# -ge 2 ] && [ "$2" = "side" ]; then
+                LAYOUT="side"
+                shift 2
+            else
+                LAYOUT="side"
+                shift
+            fi
+            ;;
+        top)
+            LAYOUT="top"
+            shift
+            ;;
+        side)
+            LAYOUT="side"
+            shift
+            ;;
+        --native|--window|--native-window)
+            USE_WINDOW=1
+            shift
+            ;;
+        --)
+            FILTERED_ARGS+=("$1")
+            shift
+            FILTERED_ARGS+=("$@")
+            break
+            ;;
+        -p|--print|--prompt|-i|--prompt-interactive|--agent|--model|--effort|--mode|--project|--conversation|--add-dir|--log-file|--json-schema|--output-format|--input-format|--print-timeout)
+            FILTERED_ARGS+=("$1")
+            shift
+            if [ $# -gt 0 ]; then
+                FILTERED_ARGS+=("$1")
+                shift
+            fi
+            ;;
+        *)
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+    esac
 done
 
 # If non-interactive (piped, scripts, or dumb terminal), pass straight through to agy
@@ -177,6 +221,10 @@ fi
 "$AGY" "$@"
 EXIT_CODE=$?
 rm -f "$RUNNER_FILE" 2>/dev/null || true
+if [ $EXIT_CODE -ne 0 ] && [ $EXIT_CODE -ne 130 ]; then
+    echo "" >&2
+    read -t 10 -r -p "Antigravity exited with code $EXIT_CODE. Press Enter to close (auto-close in 10s)... " _ 2>/dev/null || true
+fi
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 exit $EXIT_CODE
 EOF

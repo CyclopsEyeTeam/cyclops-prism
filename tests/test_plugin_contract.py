@@ -3,6 +3,9 @@
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -59,6 +62,75 @@ class TestPluginContract(unittest.TestCase):
             p = PLUGIN_ROOT / script_rel
             self.assertTrue(p.is_file(), f"{script_rel} must exist")
             self.assertTrue(os.access(p, os.X_OK), f"{script_rel} must have execute permissions")
+
+    def test_agy_prism_argument_filtering(self):
+        launcher = PLUGIN_ROOT / "bin" / "agy-prism"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("import sys, json\nprint(json.dumps(sys.argv[1:]))\n")
+            helper_path = f.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+            f.write(f"#!/bin/sh\nexec {sys.executable} {helper_path} \"$@\"\n")
+            sh_path = f.name
+        os.chmod(sh_path, 0o755)
+
+        try:
+            cases = [
+                (["--prism", "side"], []),
+                (["--prism", "top"], []),
+                (["side"], []),
+                (["top"], []),
+                (["--prism", "side", "-c"], ["-c"]),
+                (["--prism", "top", "--agent", "spark"], ["--agent", "spark"]),
+                (["--prism", "side", "-p", "side"], ["-p", "side"]),
+                (["--prism", "side", "-p", "hello world"], ["-p", "hello world"]),
+                (["--prism-top", "-c"], ["-c"]),
+                (["--native", "side"], []),
+            ]
+            for args, expected in cases:
+                res = subprocess.run(
+                    ["bash", str(launcher)] + args,
+                    capture_output=True,
+                    text=True,
+                    env=dict(os.environ, AGY_BIN=sh_path),
+                )
+                self.assertEqual(res.returncode, 0, f"Error output: {res.stderr}")
+                actual = json.loads(res.stdout.strip())
+                self.assertEqual(actual, expected, f"Failed for args {args}")
+        finally:
+            for p in [helper_path, sh_path]:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+    def test_agy_prism_layout_resolution(self):
+        launcher = PLUGIN_ROOT / "bin" / "agy-prism"
+        cases = [
+            (["--prism", "side"], "side"),
+            (["--prism", "top"], "top"),
+            (["side"], "side"),
+            (["top"], "top"),
+            (["--prismtop"], "top"),
+            (["--prism-top"], "top"),
+            (["--prism-side"], "side"),
+            (["--prism", "side", "-c"], "side"),
+            (["--prism", "top", "--agent", "spark"], "top"),
+        ]
+        for args, expected_layout in cases:
+            cmd = f"""
+            SOURCE="{launcher}"
+            eval "$(sed -n "23,85p" "$SOURCE")"
+            echo "$LAYOUT"
+            """
+            res = subprocess.run(
+                ["bash", "-c", cmd, "agy-prism"] + args,
+                capture_output=True,
+                text=True,
+                env=dict(os.environ),
+            )
+            self.assertEqual(res.returncode, 0)
+            actual_layout = res.stdout.strip().splitlines()[-1]
+            self.assertEqual(actual_layout, expected_layout, f"Failed for args {args}")
 
 
 if __name__ == "__main__":

@@ -105,20 +105,15 @@ if [ -f "${HOME}/.bashrc" ]; then
 # Antigravity Cyclops Prism companion launcher
 agy() {
     local use_prism=0
-    local prism_top=0
     for arg in "$@"; do
-        if [ "$arg" = "--prismtop" ] || [ "$arg" = "--cyclops-prismtop" ]; then
-            prism_top=1
-            use_prism=1
-            break
-        elif [ "$arg" = "--prism" ] || [ "$arg" = "--cyclops-prism" ]; then
-            use_prism=1
-            break
-        fi
+        case "$arg" in
+            --prism|--cyclops-prism|--prismtop|--cyclops-prismtop|--prism-side|--prism-top|--cyclops-prism-side|--cyclops-prism-top)
+                use_prism=1
+                break
+                ;;
+        esac
     done
-    if [ "$prism_top" -eq 1 ]; then
-        agy-prismtop "$@"
-    elif [ "$use_prism" -eq 1 ]; then
+    if [ "$use_prism" -eq 1 ]; then
         agy-prism "$@"
     else
         command agy "$@"
