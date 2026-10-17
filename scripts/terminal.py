@@ -229,8 +229,14 @@ def _get_prism_voice(
     phrase = pool[idx]
     if not unicode_mode:
         phrase = phrase.replace("·", "-")
-        return f"~ {phrase} ~"
-    return f"✧  {phrase}  ✧"
+        wings_ascii = ["~", "*", "+", "*"]
+        w_l = wings_ascii[int(max(0.0, t) * 3.0) % len(wings_ascii)] if t > 0.0 else "~"
+        w_r = wings_ascii[(int(max(0.0, t) * 3.0) + 2) % len(wings_ascii)] if t > 0.0 else "~"
+        return f"{w_l} {phrase} {w_r}"
+    wings = ["✧", "✦", "◈", "✦"]
+    w_l = wings[int(max(0.0, t) * 3.0) % len(wings)] if t > 0.0 else "✧"
+    w_r = wings[(int(max(0.0, t) * 3.0) + 2) % len(wings)] if t > 0.0 else "✧"
+    return f"{w_l}  {phrase}  {w_r}"
 
 
 def _get_facet_color(pos: float, t: float, sem_mode: str, offer: Optional[str], primary_kind: str = "") -> str:
@@ -351,6 +357,7 @@ def render_prism_frame(
         g_ring2 = "╲"
         g_node = "◈"
         g_glint = "✧"
+        g_star = "✦"
         g_spark = "·"
     else:
         g_core = "." if ended else ("!" if sem_mode == "approval" else ("*" if offer else "o"))
@@ -359,6 +366,7 @@ def render_prism_frame(
         g_ring2 = "\\"
         g_node = "o"
         g_glint = "+"
+        g_star = "*"
         g_spark = "."
 
     # Core and facet colors
@@ -411,10 +419,10 @@ def render_prism_frame(
     breath = 1.0 + (0.035 * math.sin(t * 1.6) if animate_live else 0.0)
     eff_rx = ring_radius_x * breath
     eff_ry = ring_radius_y * breath
+    has_link_peers = bool(link_state and link_state.get("peers"))
 
     # 0. Ambient Prismatic Caustic Field (upper & outer optical aura when canvas has room)
     if height >= 18 and width >= 34 and not ended and not (t == 0.0 and reduced_motion):
-        has_link_peers = bool(link_state and link_state.get("peers"))
         aura_angles = [0.35, 0.85, 2.29, 2.79, 3.55, 5.85]
         for a_idx, ang in enumerate(aura_angles):
             # When Link peers are present in the lower corners, keep ambient sparkles in the upper hemisphere
@@ -426,7 +434,7 @@ def render_prism_frame(
             if 1 <= ay < hud_y - 2 and 2 <= ax < width - 2:
                 twinkle = math.sin(t * 2.4 + a_idx * 1.7)
                 if twinkle > -0.2:
-                    ch_aura = g_glint if twinkle > 0.55 else g_spark
+                    ch_aura = g_star if twinkle > 0.78 else (g_glint if twinkle > 0.35 else g_spark)
                     col_aura = _get_facet_color(a_idx / len(aura_angles), t, sem_mode, offer, primary_kind) if use_color else ""
                     grid.put(ax, ay, ch_aura, col_aura)
 
@@ -449,10 +457,73 @@ def render_prism_frame(
         col2 = (C_WHITE if is_glint2 else _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind)) if use_color else ""
         grid.put(rx2, ry2, g_glint if is_glint2 else g_ring2, col2)
 
-    # 2. Refraction rays for active calls (with traveling photon pulses)
+    # 1b. State-Specific Crystalline Choreography inside & around the Ring Cavity
+    if animate_live and height >= 16:
+        if sem_mode == "idle":
+            # Gentle Lissajous harmonic fireflies drifting inside the ring cavity
+            for m_idx in range(2):
+                phase_m = t * 1.15 + m_idx * math.pi
+                mx = cx + int(math.sin(phase_m) * (ring_radius_x * 0.58))
+                my = cy + int(math.sin(phase_m * 2.0) * (ring_radius_y * 0.48))
+                if not (has_link_peers and my > cy + 1):
+                    m_ch = g_glint if int(t * 3.0 + m_idx) % 2 == 0 else g_spark
+                    m_col = (C_WHITE if m_ch == g_glint else C_CYAN) if use_color else ""
+                    grid.put(mx, my, m_ch, m_col)
+
+        elif sem_mode == "attending":
+            # Converging incident light streams flowing inward from the rings into the jewel core
+            stream_angles = [-2.5, -0.64, 0.64, 2.5] if not has_link_peers else [-2.5, -1.57, -0.64]
+            for s_idx, s_ang in enumerate(stream_angles):
+                frac = 1.0 - ((t * 1.35 + s_idx * 0.25) % 1.0)
+                dist_x = 4.5 + frac * max(3.0, ring_radius_x - 5.5)
+                dist_y = 2.0 + frac * max(1.5, ring_radius_y - 2.5)
+                sx_p = cx + int(math.cos(s_ang) * dist_x)
+                sy_p = cy + int(math.sin(s_ang) * dist_y)
+                s_ch = g_star if frac < 0.35 else (g_glint if frac < 0.7 else g_spark)
+                s_col = (C_WHITE if frac < 0.35 else (C_GOLD if frac < 0.7 else C_CYAN)) if use_color else ""
+                grid.put(sx_p, sy_p, s_ch, s_col)
+
+        elif sem_mode == "refracting":
+            # Vertical incident light beam entering the top of the prism
+            beam_top = max(1, cy - ring_radius_y - 1)
+            beam_bot = cy - 3
+            if beam_bot > beam_top:
+                beam_ch = "│" if unicode_mode else "|"
+                drop_y = beam_top + int((t * 10.0) % max(1, beam_bot - beam_top + 1))
+                for by_pos in range(beam_top, beam_bot + 1):
+                    is_drop = (by_pos == drop_y)
+                    b_col = (C_WHITE if is_drop else C_CYAN) if use_color else ""
+                    grid.put(cx, by_pos, g_star if is_drop else beam_ch, b_col)
+
+        elif sem_mode == "approval":
+            # Expanding horizontal consent ripples (⟨ ... ⟩) pulsing from the core
+            for r_idx in range(2):
+                r_frac = (t * 1.2 + r_idx * 0.5) % 1.0
+                r_dist = 6 + int(r_frac * max(3, ring_radius_x - 6))
+                l_rip, r_rip = ("⟨", "⟩") if unicode_mode else ("<", ">")
+                r_col = (C_GOLD if r_frac < 0.5 else C_RED) if use_color else ""
+                grid.put(cx - r_dist, cy, l_rip, r_col)
+                grid.put(cx + r_dist, cy, r_rip, r_col)
+
+        elif offer or sem_mode == "resolved":
+            # 8-point crystallization starburst blooming around the jewel core
+            burst_dirs = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+            for b_i, (dx_b, dy_b) in enumerate(burst_dirs):
+                if has_link_peers and dy_b > 0:
+                    continue
+                b_pulse = (t * 1.5 + (b_i % 2) * 0.5) % 1.0
+                rx_b = cx + dx_b * (6 + int(b_pulse * 4) if dy_b == 0 else 4 + int(b_pulse * 3))
+                ry_b = cy + dy_b * (3 + int(b_pulse * 2) if dx_b == 0 else 2 + int(b_pulse * 2))
+                if 1 <= ry_b < hud_y - 2:
+                    b_ch = g_star if b_pulse < 0.45 else g_glint
+                    b_col = (C_WHITE if b_pulse < 0.45 else (C_GOLD if b_i % 2 == 0 else C_CYAN)) if use_color else ""
+                    grid.put(rx_b, ry_b, b_ch, b_col)
+
+    # 2. Refraction rays for active calls (with multi-photon pulses & endpoint diffraction flares)
     if lanes:
         dash = "─" if unicode_mode else "-"
         pulse_glyph = ("❖" if unicode_mode else "*")
+        pulse2_glyph = (g_glint if unicode_mode else "+")
         for idx, lane in enumerate(lanes[:6]):
             kind = lane.get("kind", "other")
             col = KIND_COLOR_MAP.get(kind, C_CYAN)
@@ -468,32 +539,52 @@ def render_prism_frame(
             x_min, x_max = min(start_x, tx), max(start_x, tx)
             span = max(1, x_max - x_min)
             pulse_pos = int((t * 12.0 + idx * 3) % span) if not reduced_motion else -1
+            pulse2_pos = int((t * 12.0 + idx * 3 + span // 2) % span) if (animate_live and span >= 6) else -1
             for step_i, x_pos in enumerate(range(x_min, x_max + 1)):
                 dist_from_core = step_i if side > 0 else (span - step_i)
                 is_pulse = (dist_from_core == pulse_pos) and not ended
+                is_pulse2 = (dist_from_core == pulse2_pos) and not ended
                 ray_col = (
-                    (C_WHITE if is_pulse else _sample_gradient([RGB_WHITE, rgb_lane, rgb_lane], dist_from_core / span))
+                    (C_WHITE if is_pulse else (C_GOLD if is_pulse2 else _sample_gradient([RGB_WHITE, rgb_lane, rgb_lane], dist_from_core / span)))
                     if use_color
                     else ""
                 )
-                grid.put(x_pos, ty, pulse_glyph if is_pulse else dash, ray_col)
-            grid.put(tx, ty, g_node, C_WHITE if (use_color and animate_live and int(t * 6) % 2 == 0) else (col if use_color else ""))
+                ch_ray = pulse_glyph if is_pulse else (pulse2_glyph if is_pulse2 else dash)
+                grid.put(x_pos, ty, ch_ray, ray_col)
+
+            # Endpoint node & animated vertical diffraction flare
+            node_pulse = animate_live and (int(t * 6 + idx) % 2 == 0)
+            grid.put(tx, ty, g_star if node_pulse else g_node, C_WHITE if (use_color and node_pulse) else (col if use_color else ""))
+            if animate_live and not has_link_peers:
+                flare_ch = g_glint if node_pulse else g_spark
+                flare_col = (C_WHITE if node_pulse else col) if use_color else ""
+                if ty - 1 >= 1:
+                    grid.put(tx, ty - 1, flare_ch, flare_col)
+                if ty + 1 < hud_y - 2:
+                    grid.put(tx, ty + 1, flare_ch, flare_col)
             grid.put_str(tx + (1 if side > 0 else -len(kind) - 1), ty, f"[{kind}]", col if use_color else "")
 
-    # 3. Subagent branch satellites with orbital wakes
+    # 3. Subagent branch satellites with orbital wakes & constellation phase tethers
     if active_branches > 0:
         sat_colors = [C_GOLD, C_CYAN, C_VIOLET, C_TEAL]
         for b_idx in range(min(4, active_branches)):
             b_angle = (theta * 0.8) + (b_idx * math.pi / 2.0)
             sat_col = sat_colors[b_idx % len(sat_colors)] if use_color else ""
+            bx = cx + int(math.cos(b_angle) * (ring_radius_x + 3))
+            by = cy + int(math.sin(b_angle) * (ring_radius_y + 2))
             if not reduced_motion and not ended:
+                # Constellation tether from ring perimeter toward satellite
+                for t_step in (0.55, 0.78):
+                    tx_b = cx + int(math.cos(b_angle) * (ring_radius_x + 3) * t_step)
+                    ty_b = cy + int(math.sin(b_angle) * (ring_radius_y + 2) * t_step)
+                    if not (has_link_peers and ty_b > cy + 2):
+                        grid.put(tx_b, ty_b, g_spark, sat_col)
+                # Orbital wake behind satellite
                 for w_step, w_ch in ((1, g_glint), (2, g_spark)):
                     w_ang = b_angle - w_step * 0.16
                     wx = cx + int(math.cos(w_ang) * (ring_radius_x + 3))
                     wy = cy + int(math.sin(w_ang) * (ring_radius_y + 2))
                     grid.put(wx, wy, w_ch, C_DIM if w_step == 2 and use_color else sat_col)
-            bx = cx + int(math.cos(b_angle) * (ring_radius_x + 3))
-            by = cy + int(math.sin(b_angle) * (ring_radius_y + 2))
             grid.put(bx, by, g_sat, sat_col)
 
     # 4. Central Faceted Core (scales across compact top banners, 35x40 side panes, and wide terminals)
@@ -511,7 +602,7 @@ def render_prism_frame(
             if (abs(dx) / (clear_w + 0.1) + abs(dy) / (clear_h + 0.1)) <= 1.05:
                 grid.put(cx + dx, cy + dy, " ", C_RESET)
 
-    # Core facets
+    # Core facets with rotating harmonic shimmer
     if unicode_mode:
         up, dn = "▲", "▼"
         lb, rb = "⟨", "⟩"
@@ -525,6 +616,13 @@ def render_prism_frame(
     f_col_mid = _get_facet_color(0.25, t, sem_mode, offer, primary_kind) if use_color else ""
     f_col_bot = _get_facet_color(0.5, t, sem_mode, offer, primary_kind) if use_color else ""
     inner_facet_col = (C_WHITE if (offer or sem_mode in ("attending", "refracting")) else f_col_mid) if use_color else ""
+
+    # Rotating clockwork highlight across inner cardinal facets when animate_live
+    clock_idx = int(t * 6.0) % 4 if animate_live else -1
+    ic_up = (C_GOLD if clock_idx == 0 and sem_mode != "ended" else inner_facet_col) if use_color else ""
+    ic_rb = (C_GOLD if clock_idx == 1 and sem_mode != "ended" else inner_facet_col) if use_color else ""
+    ic_dn = (C_GOLD if clock_idx == 2 and sem_mode != "ended" else inner_facet_col) if use_color else ""
+    ic_lb = (C_GOLD if clock_idx == 3 and sem_mode != "ended" else inner_facet_col) if use_color else ""
 
     if core_level == 3:
         # Apex facets
@@ -543,13 +641,14 @@ def render_prism_frame(
         grid.put(cx + 2, cy + 2, sl, f_col_bot)
         # Coronal glints when active or crystallized
         if sem_mode in ("attending", "refracting", "branching", "resolved") or offer:
-            grid.put(cx - 3, cy, g_spark, f_col_top)
-            grid.put(cx + 3, cy, g_spark, f_col_top)
+            c_glint_ch = g_glint if (animate_live and int(t * 4) % 2 == 0) else g_spark
+            grid.put(cx - 3, cy, c_glint_ch, f_col_top)
+            grid.put(cx + 3, cy, c_glint_ch, f_col_top)
         # Inner facets
-        grid.put(cx, cy - 1, up, inner_facet_col)
-        grid.put(cx, cy + 1, dn, inner_facet_col)
-        grid.put(cx - 2, cy, lb, inner_facet_col)
-        grid.put(cx + 2, cy, rb, inner_facet_col)
+        grid.put(cx, cy - 1, up, ic_up)
+        grid.put(cx, cy + 1, dn, ic_dn)
+        grid.put(cx - 2, cy, lb, ic_lb)
+        grid.put(cx + 2, cy, rb, ic_rb)
         grid.put(cx, cy, g_core, core_center_col if use_color else "")
     elif core_level == 2:
         # Outer diamond crown
@@ -562,10 +661,10 @@ def render_prism_frame(
         grid.put(cx - 2, cy + 1, bs, f_col_bot)
         grid.put(cx + 2, cy + 1, sl, f_col_bot)
         # Inner jewel cradle (preserves ⟨ ⟐ ⟩ and < o > symmetry at the core)
-        grid.put(cx, cy - 1, up, inner_facet_col)
-        grid.put(cx, cy + 1, dn, inner_facet_col)
-        grid.put(cx - 2, cy, lb, inner_facet_col)
-        grid.put(cx + 2, cy, rb, inner_facet_col)
+        grid.put(cx, cy - 1, up, ic_up)
+        grid.put(cx, cy + 1, dn, ic_dn)
+        grid.put(cx - 2, cy, lb, ic_lb)
+        grid.put(cx + 2, cy, rb, ic_rb)
         grid.put(cx, cy, g_core, core_center_col if use_color else "")
     else:
         grid.put(cx - 2, cy, lb, facet_col if use_color else "")
