@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0 - Cyclops Studio Presence Integration, 3D Multi-Faceted Render & Flicker-Free Enlarged Canvas
+
+- **Cyclops Studio Presence Renderer (`render/prism.mjs` v1.6.0)**: Upgraded Prism's Studio presence module with 3D 8-facet internal crown refraction lines, ambient caustic radial halo, a 3rd inner harmonic counter-rotating gossamer ring, travelling photon glints on the polarized rings, a gaze-responsive inner crystal jewel, answered-turn crown constellation stars, a held-out crystal offer jewel, 7 chromatic mood palettes (`crystalline`, `aurora`, `solar`, `nebula`, `emerald`, `supernova`, `zen`), universal Studio/Spark event alias compatibility, and software `rgba()` & `cells()` (half-block and HD quadrant) rasterizers. Preserved the seeded `1.2.1` renderer as `render/prism-1.2.1.mjs`.
+- **Automatic Cyclops Studio Presence Feed Publication**: Updated `studio_target()` in `scripts/presence_feed.py` so running inside a Cyclops Studio terminal (`CYCLOPS_SESSION_ID`) automatically publishes to `~/.local/state/cyclops-presence/<session>/prism/{live,durable}.json`.
+- **Enlarged Terminal Painting Canvas & Flicker-Free Differential Redraws**: Expanded the terminal painting canvas up to 24 rows (`48` vertical sub-pixels) and `88%` pane width, eliminated white flashing boxes via row-differential ANSI redraws (`prev_row_lines`), single-call `os.write(stdout_fd, ...)`, disabled cursor blink (`\033[?12l`), and soft Gaussian spray falloff.
+- **Autonomous Living Painting Cadence & New Curated Works**: Added autonomous painting generation on every resolved message turn, every 15 minutes minimum, and every 5 minutes during active work windows, plus two new curated compositions (*Crystalline cathedral of seven harmonics* and *Iridescent lotus on the event horizon*).
+
 ## 1.5.0 - Shared Spark & Prism Paintings, Clickable Tools, Story, 4-Way Convert & Musical Roll
 
 - **Bidirectional Painting Sharing (`prism-paintings/` ↔ `spark-paintings/`)**: Added full support for the shared Spark & Prism painting schema (`by: "prism" | "spark"`, `shape: "wide" | "square" | "tall"`, `opening: true`, strict clamping of widths `0.003–0.12`, radii `0.004–0.7`, spray `n <= 200`, and points `2–24`), reading Spark's paintings into the session story and crediting `"Spark"` when displayed or exported.

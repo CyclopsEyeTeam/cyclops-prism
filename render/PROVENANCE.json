@@ -1,0 +1,24 @@
+{
+  "presence": "prism",
+  "version": "1.6.0",
+  "rendererVersion": "prism-renderer/1.6.0",
+  "protocolVersion": "cyclops-presence/1",
+  "painterProtocol": "prism-gesture/1",
+  "previousVersion": "1.2.1",
+  "copiedFrom": "/home/tom/Documents/CyclopsStudio/presences/prism/mod/render",
+  "files": {
+    "prism.mjs": {
+      "sha256": "739616b58f579ba88944769483a25b507f9269010395f2d3b0c66c366c47df4a",
+      "bytes": 43832
+    },
+    "prism-1.2.1.mjs": {
+      "sha256": "c9a042768724aefe221567943be183058924283b07bbbd0283707505d4986bab",
+      "bytes": 49638
+    },
+    "prism-sound.mjs": {
+      "sha256": "20ddea3794b1dab867b76e7342e12eade30f74895aba86ea7378f9b3cb8a5bd2",
+      "bytes": 8084
+    }
+  },
+  "notes": "Upgraded to prism-renderer/1.6.0 with 3D 8-facet internal crown refraction lines, ambient caustic radial halo, 3rd inner harmonic counter-rotating gossamer ring, travelling photon glints, gaze-responsive inner jewel, answered-turn crown constellation stars, held-out crystal offer jewel, 7 chromatic mood palettes (crystalline, aurora, solar, nebula, emerald, supernova, zen), universal Studio/Spark event alias compatibility, and software rgba() & cells() rasterizers. Seeded 1.2.1 renderer preserved as prism-1.2.1.mjs."
+}

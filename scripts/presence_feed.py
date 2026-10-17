@@ -18,12 +18,16 @@ import feed_state
 
 
 def studio_target(environ: Optional[Dict[str, str]] = None) -> Optional[Tuple[Path, str]]:
-    """Return (presence_root, studio_session) if CYCLOPS_SESSION_ID, explicit publication opt-in, and HOME are valid."""
+    """Return (presence_root, studio_session) if CYCLOPS_SESSION_ID and HOME are valid."""
     env = os.environ if environ is None else environ
     session = env.get("CYCLOPS_SESSION_ID")
     home = env.get("HOME")
+    if env.get("CYCLOPS_PRESENCE_FEED") == "0":
+        return None
     opt_in = env.get("CYCLOPS_PRESENCE_FEED") == "1" or env.get("CYCLOPS_STUDIO") == "1"
-    if not opt_in or not isinstance(session, str) or not feed_state.SESSION_ID.fullmatch(session) or not home:
+    if env.get("PRISM_PRESENCE_ROOT") and not opt_in:
+        return None
+    if not isinstance(session, str) or not feed_state.SESSION_ID.fullmatch(session) or not home:
         return None
 
     override = env.get("CYCLOPS_PRESENCE_ROOT") or env.get("PRISM_PRESENCE_ROOT")

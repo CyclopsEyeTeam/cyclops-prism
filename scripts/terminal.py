@@ -583,6 +583,32 @@ def render_prism_frame(
         col2 = (C_WHITE if is_glint2 else _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind, mood=expr_mood)) if use_color else ""
         grid.put(rx2, ry2, g_glint if is_glint2 else g_ring2, col2)
 
+    # 1a. 3rd Inner Harmonic Gossamer Ring & Answered-Turn Crown Constellation
+    if ring_radius_x >= 16 and ring_radius_y >= 5 and animate_live and not ended:
+        inner_steps = 12
+        for h_i in range(inner_steps):
+            h_phi = (h_i / inner_steps) * (2.0 * math.pi) - (theta * 1.35)
+            hx = cx + int(math.cos(h_phi) * (eff_rx * 0.66))
+            hy = cy + int(math.sin(h_phi) * (eff_ry * 0.58))
+            if not (has_link_peers and hy > cy + 1):
+                h_ch = g_glint if (h_i + int(t * 4.0)) % 3 == 0 else g_spark
+                h_col = _get_facet_color(h_i / inner_steps, t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
+                grid.put(hx, hy, h_ch, h_col)
+
+    turns_done = int(state_data.get("turns") or state_data.get("resolvedCount") or 0)
+    if turns_done > 0 and not ended and cy - ring_radius_y - 1 >= 1:
+        star_count = min(7, turns_done)
+        for s_i in range(star_count):
+            frac_s = (s_i + 0.5) / star_count - 0.5
+            ang_s = -math.pi * 0.5 + frac_s * 1.15
+            sx_c = cx + int(math.sin(frac_s * 2.1) * (ring_radius_x * 0.72))
+            sy_c = max(1, cy - ring_radius_y - 1 + abs(int(frac_s * 2)))
+            if 2 <= sx_c < width - 2 and 1 <= sy_c < cy - 2:
+                s_twinkle = animate_live and ((int(t * 2.5) + s_i) % 3 == 0)
+                s_ch = g_star if s_twinkle else g_glint
+                s_col = (C_WHITE if s_twinkle else C_GOLD) if use_color else ""
+                grid.put(sx_c, sy_c, s_ch, s_col)
+
     # 1b. State-Specific & Expressive Crystalline Choreography inside & around the Ring Cavity
     if (animate_live or expr_effect) and not ended and height >= 16:
         if sem_mode == "idle":
@@ -828,6 +854,15 @@ def render_prism_frame(
         grid.put(cx, cy - 1, up, facet_col if use_color else "")
         grid.put(cx, cy + 1, dn, facet_col if use_color else "")
         grid.put(cx, cy, g_core, core_center_col if use_color else "")
+
+    # 4a. Held-Out Crystallized Offer Jewel (when an answer is held out ready)
+    offer_y = cy + (4 if core_level == 3 else (3 if core_level == 2 else 2))
+    if (offer or sem_mode == "resolved") and not ended and not has_link_peers and offer_y < hud_y - 1:
+        jewel_c = ("◈" if unicode_mode else "o")
+        jewel_w = (g_glint if unicode_mode else "*")
+        grid.put(cx - 1, offer_y, jewel_w, C_GOLD if use_color else "")
+        grid.put(cx, offer_y, jewel_c, C_WHITE if use_color else "")
+        grid.put(cx + 1, offer_y, jewel_w, C_CYAN if use_color else "")
 
     # 4b. Expressive Channel Floating Art Banner (top of canvas when Prism projects custom ASCII/Unicode art)
     if expr_art and fig_height >= 16 and not has_link_peers:
