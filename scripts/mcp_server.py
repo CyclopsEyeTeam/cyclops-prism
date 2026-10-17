@@ -91,6 +91,7 @@ def write_expression(
     glyph: Optional[str] = None,
     art: Optional[List[str]] = None,
     painting: Optional[Dict[str, Any]] = None,
+    paint_mode: Optional[str] = None,
     job: Optional[Dict[str, Any]] = None,
     ttl: float = 0.0,
     environ: Optional[Dict[str, str]] = None,
@@ -119,6 +120,11 @@ def write_expression(
         [str(line)[:64] for line in (art or [])[:5]]
         if isinstance(art, list)
         else prev.get("art", [])
+    )
+    clean_paint_mode = (
+        paint_mode.lower().strip()
+        if isinstance(paint_mode, str) and paint_mode.lower().strip() in ("live", "relative")
+        else (prev.get("paintMode") if prev.get("paintMode") in ("live", "relative") else "live")
     )
     ttl_val = float(ttl) if isinstance(ttl, (int, float)) and ttl >= 0 else 0.0
 
@@ -157,6 +163,7 @@ def write_expression(
         "effect": clean_effect,
         "glyph": clean_glyph,
         "art": clean_art,
+        "paintMode": clean_paint_mode,
         "painting": active_painting,
         "paintStats": paint_stats,
         "chat": chat_history[-16:],

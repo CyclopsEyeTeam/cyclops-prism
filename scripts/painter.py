@@ -32,6 +32,8 @@ MAX_PTS = 24
 TITLE_CHARS = 48
 REVEAL_S = 2.4  # Seconds to progressively lay down marks stroke-by-stroke (§3: about 2.4 s)
 STORY_PAGE_S = 7.0  # Seconds per page in story mode (§3: about 7 s a page)
+TRUEST_LEVELS = int(os.environ.get("PRISM_TRUEST_LEVELS", "16"))  # Terminal discrete levels per channel (16 -> step 17)
+CONVERT_WAYS = ("truest", "layered", "faithful", "refined", "interpretive")
 
 GROUND_DARK = (0.078, 0.071, 0.094)  # #141218 terminal dark ground
 
@@ -40,6 +42,43 @@ RGBFloat = Tuple[float, float, float]
 # Cache for terminal pixel buffers so held paintings redraw in 0 ms
 _RASTER_CACHE: Dict[Tuple, List[List[float]]] = {}
 _CACHE_MAX = 24
+
+
+def posterize_val(v: int, levels: int = TRUEST_LEVELS) -> int:
+    """Round a single 0..255 byte to the terminal's discrete levels (default 16 -> step 17)."""
+    v_clamped = max(0, min(255, int(v)))
+    if not levels or levels >= 256:
+        return v_clamped
+    step = 255.0 / (levels - 1)
+    return max(0, min(255, int(round(round(v_clamped / step) * step))))
+
+
+def posterize_bytes(rgb: bytearray, levels: int = TRUEST_LEVELS) -> bytearray:
+    """Round every 0..255 channel byte in `rgb` in-place to the terminal's discrete levels."""
+    if not levels or levels >= 256:
+        return rgb
+    step = 255.0 / (levels - 1)
+    lut = [max(0, min(255, int(round(round(i / step) * step)))) for i in range(256)]
+    for idx in range(len(rgb)):
+        rgb[idx] = lut[rgb[idx]]
+    return rgb
+
+
+def _discrete_table_values(levels: int = TRUEST_LEVELS) -> str:
+    """Generate SVG feComponentTransfer discrete tableValues for `L` levels:
+    2*(L-1) bins where bin k has value ceil(k/2)/(L-1).
+    """
+    L = max(2, int(levels))
+    out: List[str] = []
+    for k in range(2 * (L - 1)):
+        val = math.ceil(k / 2.0) / float(L - 1)
+        if val <= 0.0:
+            out.append("0")
+        elif val >= 1.0:
+            out.append("1")
+        else:
+            out.append(f"{val:.4f}".rstrip("0").rstrip("."))
+    return " ".join(out)
 
 
 def _clamp(v, lo: float, hi: float, default: float) -> float:
@@ -1107,12 +1146,15 @@ def draw_painting_block(
         gg = min(1.0, tg + GROUND_DARK[1] * (1.0 - a))
         bb = min(1.0, tb + GROUND_DARK[2] * (1.0 - a))
         return (
-            max(0, min(255, int(round(rr * 255)))),
-            max(0, min(255, int(round(gg * 255)))),
-            max(0, min(255, int(round(bb * 255)))),
+            posterize_val(int(round(rr * 255)), TRUEST_LEVELS),
+            posterize_val(int(round(gg * 255)), TRUEST_LEVELS),
+            posterize_val(int(round(bb * 255)), TRUEST_LEVELS),
         )
 
-    bg_hex = "\033[48;2;20;18;24m"
+    bg_r = posterize_val(20, TRUEST_LEVELS)
+    bg_g = posterize_val(18, TRUEST_LEVELS)
+    bg_b = posterize_val(24, TRUEST_LEVELS)
+    bg_hex = f"\033[48;2;{bg_r};{bg_g};{bg_b}m"
     for cy in range(canvas_rows):
         y_screen = top_y + cy
         if y_screen >= bot_y:
@@ -1200,12 +1242,12 @@ def draw_painting_block(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# §4. Convert (Truest, Faithful, Refined, Interpretive) -> SVG + PNG + HTML
+# §4. Convert (Truest, Layered, Faithful, Refined, Interpretive) -> SVG + PNG + HTML
 # ─────────────────────────────────────────────────────────────────────────────
 
 def transform_painting_way(painting_raw: dict, way: str) -> dict:
     """Return a painting dict transformed for the requested convert `way`:
-    - `truest` / `faithful`: unchanged marks & title (0 tokens)
+    - `truest` / `layered` / `faithful`: unchanged marks & title (0 tokens)
     - `refined`: revisits the painting keeping the subject — enriches glows, subdivides polygon
       gradients, and adds delicate harmonic highlights (~2100 tokens)
     - `interpretive`: freely reimagines the painting — introduces crystalline symmetry or counter-arcs,
@@ -1213,7 +1255,7 @@ def transform_painting_way(painting_raw: dict, way: str) -> dict:
     """
     base = parse_painting(painting_raw) or parse_painting(CURATED_PAINTINGS[0])
     way = way.lower().strip()
-    if way in ("truest", "faithful"):
+    if way in ("truest", "layered", "faithful"):
         return base
 
     marks = [dict(m) for m in base["marks"]]
@@ -1302,14 +1344,17 @@ def render_svg_painting(
     *,
     way: str = "truest",
     cols: int = 40,
+    truest_levels: int = TRUEST_LEVELS,
 ) -> str:
     """Export a painting in Spark & Prism's exact SVG format (§4):
     - `truest`:
-      - Minimum mark size scaled by `width / cols` so a speck is at least `0.6` of a cell (`min_r = 0.6 * cell_w`)
-      - Marks cut in order into 4 layers (`layer0`..`layer3`)
-      - Far layers softened (`soft0`, `soft1`, `soft2`)
-      - Each nearer layer casts a soft shadow (`#shadow`) on what's behind it
-      - Brightest light bloomed (`#bloom` with luminanceToAlpha slope=4 intercept=-3)
+      - Draws only the marks, flat, at the weight one terminal cell gives them (`min_r = 0.6 * cell_w`)
+      - No added shadows, bloom, blur, or depth layers
+      - Quantizes the painting group (not the caption) to `truest_levels` (default 16) via
+        `<filter id="levels" color-interpolation-filters="sRGB">` with discrete `feComponentTransfer`
+    - `layered`:
+      - Previous 4-layer depth (`layer0`..`layer3`), far-layer softening (`soft0`..`soft2`),
+        inter-layer cast shadow (`#shadow`), and luminance bloom (`#bloom`) kept for comparison
     - `faithful` / `refined` / `interpretive`:
       - Fine mark geometry in `<g class="add">...</g>`
     - Caption at bottom: italic title + `{Author} · {date} · {way}`
@@ -1328,15 +1373,27 @@ def render_svg_painting(
 
     cell_w = width / float(max(16, cols))
     is_truest = way == "truest"
-    min_r = (0.6 * cell_w) if is_truest else (3.0 * (width / 1920.0))
-    min_w = (0.9 * cell_w) if is_truest else (4.5 * (width / 1920.0))
+    is_layered = way == "layered"
+    use_cell_weight = is_truest or is_layered
+    min_r = (0.6 * cell_w) if use_cell_weight else (3.0 * (width / 1920.0))
+    min_w = (0.6 * cell_w) if is_truest else ((0.9 * cell_w) if is_layered else (4.5 * (width / 1920.0)))
 
     n_marks = max(1, len(painting["marks"]))
     defs: List[str] = []
     layer_elems: List[List[str]] = [[], [], [], []]
     gid = 0
 
-    if is_truest:
+    if is_truest and truest_levels and truest_levels < 256:
+        tbl = _discrete_table_values(truest_levels)
+        defs.append(
+            f'<filter id="levels" color-interpolation-filters="sRGB">'
+            f'<feComponentTransfer>'
+            f'<feFuncR type="discrete" tableValues="{tbl}"/>'
+            f'<feFuncG type="discrete" tableValues="{tbl}"/>'
+            f'<feFuncB type="discrete" tableValues="{tbl}"/>'
+            f'</feComponentTransfer></filter>'
+        )
+    elif is_layered:
         shadow_off = round(0.003 * width, 2)
         defs.append(
             f'<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB">'
@@ -1346,8 +1403,8 @@ def render_svg_painting(
 
     for p in scene:
         m_idx = int(p.get("mark_idx", 0))
-        l_idx = min(3, (m_idx * 4) // n_marks) if is_truest else 0
-        prefix = f"l{l_idx}g" if is_truest else "g"
+        l_idx = min(3, (m_idx * 4) // n_marks) if is_layered else 0
+        prefix = f"l{l_idx}g" if is_layered else "g"
         k = p["k"]
 
         if k == "glow":
@@ -1451,6 +1508,14 @@ def render_svg_painting(
     tx = int(round(20 * (width / 1920.0)))
 
     if is_truest:
+        filter_attr = ' filter="url(#levels)"' if (truest_levels and truest_levels < 256) else ""
+        body = (
+            f'<g{filter_attr}>'
+            f'<rect width="{width}" height="{art_h}" fill="#141218"/>'
+            f'<g class="add">{"".join(layer_elems[0])}</g>'
+            f'</g>'
+        )
+    elif is_layered:
         soft_stds = [round(0.0015 * width, 2), round(0.001 * width, 2), round(0.0005 * width, 2)]
         for l_i in range(4):
             defs.append(f'<g id="layer{l_i}" class="add">{"".join(layer_elems[l_i])}</g>')
@@ -1488,6 +1553,7 @@ def render_svg_painting(
         f'<rect width="{width}" height="{height}" fill="#141218"/>\n'
         f'<defs>{"".join(defs)}</defs>\n'
         f"{body}\n"
+        f'<rect y="{art_h}" width="{width}" height="{height - art_h}" fill="#141218"/>\n'
         f'<text x="{tx}" y="{ty1}" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="{font_sz}" fill="#ece4f0" font-style="italic">{esc_title}</text>'
         f'<text x="{tx}" y="{ty2}" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="{font_sz}" fill="#968ca0">{by_who} · {date_str} · {way}</text>\n'
         f"</svg>\n"
@@ -1501,25 +1567,31 @@ def render_painting_canvas_pil(
     *,
     reveal: float = 1.0,
     truest: bool = True,
+    layered: bool = False,
     cols: int = 40,
+    truest_levels: int = TRUEST_LEVELS,
 ) -> Image.Image:
-    """Render the artwork canvas into a PIL Image with 4-layer depth, softening, shadows,
-    bloom, and §6 colour-depth spill to white. Perform work in short responsive bursts.
+    """Render the artwork canvas into a PIL Image:
+    - `truest=True` (and `not layered`): draws only the marks flat at terminal cell weight (`0.6 * cell_w`)
+      with no added shadow, bloom, blur, or depth layers, then rounds every colour channel to `truest_levels`
+      (default 16 -> multiples of 17).
+    - `layered=True`: previous 4-layer depth composition with far-layer softening, cast shadows, and bloom.
+    - `truest=False, layered=False`: smooth fine marks (`faithful` / `refined` / `interpretive`).
     """
     painting = parse_painting(painting_raw) or parse_painting(CURATED_PAINTINGS[0])
-    # Rasterize at internal resolution (up to 480px wide) then upscale with bicubic + PIL filters for speed & responsiveness
     work_scale = min(1.0, 480.0 / max(1, art_w))
     w_int = max(64, int(round(art_w * work_scale)))
     h_int = max(32, int(round(art_h * work_scale)))
 
     cell_w = w_int / float(max(16, cols))
-    min_r_px = (0.6 * cell_w) if truest else max(0.8, 3.0 * (w_int / 1920.0))
-    min_hw_px = (0.45 * cell_w) if truest else max(0.6, 2.25 * (w_int / 1920.0))
+    use_cell_weight = truest or layered
+    min_r_px = (0.6 * cell_w) if use_cell_weight else max(0.8, 3.0 * (w_int / 1920.0))
+    min_hw_px = (0.3 * cell_w) if truest else ((0.45 * cell_w) if layered else max(0.6, 2.25 * (w_int / 1920.0)))
 
     scene = painting_scene(painting, w_int, h_int, reveal=reveal)
     n_marks = max(1, len(painting["marks"]))
 
-    if not truest:
+    if not layered:
         px = rasterize_scene(scene, w_int, h_int, min_r_px=min_r_px, min_hw_px=min_hw_px, yield_burst=True)
         raw_bytes = bytearray(w_int * h_int * 3)
         for i, cell in enumerate(px):
@@ -1532,19 +1604,24 @@ def render_painting_canvas_pil(
             raw_bytes[off] = max(0, min(255, int(round(rr * 255))))
             raw_bytes[off + 1] = max(0, min(255, int(round(gg * 255))))
             raw_bytes[off + 2] = max(0, min(255, int(round(bb * 255))))
+        if truest and truest_levels and truest_levels < 256:
+            posterize_bytes(raw_bytes, levels=truest_levels)
         img = Image.frombytes("RGB", (w_int, h_int), bytes(raw_bytes))
         if (w_int, h_int) != (art_w, art_h):
             img = img.resize((art_w, art_h), Image.Resampling.BICUBIC)
+            if truest and truest_levels and truest_levels < 256:
+                step = 255.0 / (truest_levels - 1)
+                lut = [max(0, min(255, int(round(round(v / step) * step)))) for v in range(256)] * 3
+                img = img.point(lut)
         return img
 
-    # Truest: 4-layer composition with far-layer softening, inter-layer drop shadows, and bright light bloom
+    # Layered (kept for comparison): 4-layer composition with far-layer softening, drop shadows, and bloom
     layers_scene: List[List[dict]] = [[], [], [], []]
     for p in scene:
         l_idx = min(3, (int(p.get("mark_idx", 0)) * 4) // n_marks)
         layers_scene[l_idx].append(p)
 
     comp = [[GROUND_DARK[0], GROUND_DARK[1], GROUND_DARK[2]] for _ in range(w_int * h_int)]
-    soft_radii = [1.2, 0.8, 0.4, 0.0]
     shadow_dy = max(1, int(round(0.003 * h_int)))
 
     for l_idx in range(4):
@@ -1610,13 +1687,23 @@ def render_png_painting(
     way: str = "truest",
     size: str = "hd",
     cols: int = 40,
+    truest_levels: int = TRUEST_LEVELS,
 ) -> Path:
     """Render and save a high-res PNG (`hd` 1920w or `4k` 3840w) with caption bar into `png_path`."""
     painting = transform_painting_way(painting_raw, way)
     width, height, art_h = _dimensions_for_shape(painting.get("shape", "wide"), size=size)
 
     full_img = Image.new("RGB", (width, height), (20, 18, 24))
-    art_img = render_painting_canvas_pil(painting, width, art_h, reveal=1.0, truest=(way == "truest"), cols=cols)
+    art_img = render_painting_canvas_pil(
+        painting,
+        width,
+        art_h,
+        reveal=1.0,
+        truest=(way == "truest"),
+        layered=(way == "layered"),
+        cols=cols,
+        truest_levels=truest_levels,
+    )
     full_img.paste(art_img, (0, 0))
 
     draw = ImageDraw.Draw(full_img)
@@ -1674,7 +1761,7 @@ def rebuild_gallery_html(gallery_dir: Path) -> Path:
         img_src = png_f.name if png_f.is_file() else svg_f.name
         stem = svg_f.stem
         way_label = "truest"
-        for w_cand in ("truest", "faithful", "refined", "interpretive"):
+        for w_cand in CONVERT_WAYS:
             if stem.endswith(f"-{w_cand}"):
                 way_label = w_cand
                 break
@@ -1715,9 +1802,10 @@ def convert_painting(
     way: str = "truest",
     size: str = "hd",
     cols: int = 40,
+    truest_levels: int = TRUEST_LEVELS,
     on_progress: Optional[Callable[[str, float], None]] = None,
 ) -> Dict[str, str]:
-    """Convert a single painting in `way` (`truest`, `faithful`, `refined`, `interpretive`) at `size` (`hd` or `4k`).
+    """Convert a single painting in `way` (`truest`, `layered`, `faithful`, `refined`, `interpretive`) at `size` (`hd` or `4k`).
     Writes `.svg`, `.png`, and `.json` (if by Prism) into `prism-paintings/`, plus updates `index.html`.
     """
     if gallery_dir is None:
@@ -1726,7 +1814,7 @@ def convert_painting(
     gallery_dir.mkdir(parents=True, exist_ok=True)
 
     way = way.lower().strip()
-    if way not in ("truest", "faithful", "refined", "interpretive"):
+    if way not in CONVERT_WAYS:
         way = "truest"
 
     transformed = transform_painting_way(painting_raw, way)
@@ -1752,13 +1840,15 @@ def convert_painting(
     svg_path = gallery_dir / f"{stem}.svg"
     png_path = gallery_dir / f"{stem}.png"
 
-    svg_content = render_svg_painting(transformed, width=width, height=height, way=way, cols=cols)
+    svg_content = render_svg_painting(
+        transformed, width=width, height=height, way=way, cols=cols, truest_levels=truest_levels
+    )
     svg_path.write_text(svg_content, encoding="utf-8")
 
     if on_progress:
         on_progress(f"laying down “{p_title[:24]}” · {way}", 0.55)
 
-    render_png_painting(transformed, png_path, way=way, size=size, cols=cols)
+    render_png_painting(transformed, png_path, way=way, size=size, cols=cols, truest_levels=truest_levels)
     index_path = rebuild_gallery_html(gallery_dir)
 
     if on_progress:
@@ -1834,12 +1924,240 @@ LIVING_POETIC_PLACES = (
 )
 
 
-def generate_living_painting(
+def generate_relative_painting(
+    state_data: Optional[dict] = None,
     now: Optional[float] = None,
     step_index: Optional[int] = None,
     mood_hint: Optional[str] = None,
 ) -> dict:
-    """Generate a unique, poetic prismatic painting for a new message turn or a 15-minute / long-work window."""
+    """Generate a work-relative narrative painting ('Ch. 1', 'Ch. 2', ...) shaped directly by the ongoing development work."""
+    ts = time.time() if now is None else float(now)
+    ch_num = max(1, int(step_index or 1))
+    seed_base = int(ts * 1000) ^ (ch_num * 2654435761)
+    rng = _rng(seed_base)
+
+    st = state_data if isinstance(state_data, dict) else {}
+    sem_mode = str(st.get("mode") or "idle")
+    offer = st.get("offer")
+    branches = int(st.get("activeBranches") or 0)
+    lanes = st.get("lanes") if isinstance(st.get("lanes"), list) else []
+    spectrum = st.get("spectrum") if isinstance(st.get("spectrum"), dict) else {}
+
+    # Count work signals from active lanes + accumulated turn spectrum
+    counts: Dict[str, int] = {
+        "inspect": int(spectrum.get("inspect", 0)),
+        "change": int(spectrum.get("change", 0)),
+        "execute": int(spectrum.get("execute", 0)),
+        "service": int(spectrum.get("service", 0)),
+    }
+    for ln in lanes:
+        if isinstance(ln, dict):
+            k = str(ln.get("kind") or "inspect")
+            if k in counts:
+                counts[k] += 1
+
+    total_ops = sum(counts.values())
+    active_lane_kinds = [str(ln.get("kind")) for ln in lanes if isinstance(ln, dict) and ln.get("kind")]
+
+    # Determine dominant work phase for this chapter
+    if branches > 0 or sem_mode == "branching":
+        phase = "branching"
+    elif sem_mode == "approval":
+        phase = "approval"
+    elif "change" in active_lane_kinds or (counts["change"] > 0 and counts["change"] >= counts["execute"]):
+        phase = "change"
+    elif "execute" in active_lane_kinds or counts["execute"] > 0:
+        phase = "execute"
+    elif "service" in active_lane_kinds or counts["service"] > 0:
+        phase = "service"
+    elif "inspect" in active_lane_kinds or counts["inspect"] > 0:
+        phase = "inspect"
+    elif offer or sem_mode == "resolved":
+        phase = "resolved"
+    else:
+        phase = "attending"
+
+    phase_palettes = {
+        "inspect": ("aurora", "#070b1e", "#13223e", "#00f2fe", "#00e5a3", "#c48cff", "#fff6d6"),
+        "change": ("solar", "#180d1c", "#341a2a", "#ffb020", "#f59466", "#00f2fe", "#fff6e6"),
+        "execute": ("supernova", "#160a1e", "#321632", "#ff6eb4", "#00e5a3", "#00f2fe", "#ffffff"),
+        "service": ("emerald", "#061520", "#102e3c", "#00e5a3", "#82ffd2", "#00f2fe", "#fff6d6"),
+        "branching": ("nebula", "#0d091c", "#221436", "#c48cff", "#ff6eb4", "#00f2fe", "#ffe6f2"),
+        "approval": ("solar", "#1a0f18", "#381c24", "#ffb020", "#ff6eb4", "#fff6d6", "#ffffff"),
+        "resolved": ("crystalline", "#0a1024", "#1b2848", "#00f2fe", "#fff6d6", "#c48cff", "#ffffff"),
+        "attending": ("aurora", "#081026", "#162848", "#00f2fe", "#82ffd2", "#c48cff", "#fff6d6"),
+    }
+    mood, sky_top, sky_bot, c1, c2, c3, c_star = phase_palettes.get(phase, phase_palettes["attending"])
+    if mood_hint and mood_hint in MOOD_PALETTES:
+        mood = mood_hint
+
+    phase_titles = {
+        "inspect": (
+            f"Ch.{ch_num} · Mapping the Deep",
+            f"Ch.{ch_num} · Tracing the Source",
+            f"Ch.{ch_num} · Lantern in the Archive",
+        ),
+        "change": (
+            f"Ch.{ch_num} · Forging the Lattice",
+            f"Ch.{ch_num} · Sculpting New Facets",
+            f"Ch.{ch_num} · Golden Joinery",
+        ),
+        "execute": (
+            f"Ch.{ch_num} · Pulse of Verification",
+            f"Ch.{ch_num} · Live Signal Waveform",
+            f"Ch.{ch_num} · Igniting the Test Bench",
+        ),
+        "service": (
+            f"Ch.{ch_num} · Bridge Across Channels",
+            f"Ch.{ch_num} · Harmonic Relay",
+            f"Ch.{ch_num} · Distant Signal Home",
+        ),
+        "branching": (
+            f"Ch.{ch_num} · {max(2, branches)} Parallel Horizons",
+            f"Ch.{ch_num} · Branching Constellation",
+            f"Ch.{ch_num} · Syncing Twin Threads",
+        ),
+        "approval": (
+            f"Ch.{ch_num} · Threshold of Consent",
+            f"Ch.{ch_num} · Lantern at the Gate",
+        ),
+        "resolved": (
+            f"Ch.{ch_num} · Crystallized Synthesis",
+            f"Ch.{ch_num} · The Completed Facet",
+            f"Ch.{ch_num} · Held Out in Clear Light",
+        ),
+        "attending": (
+            f"Ch.{ch_num} · Gathering the Thread",
+            f"Ch.{ch_num} · First Light on the Work",
+            f"Ch.{ch_num} · Listening at the Loom",
+        ),
+    }
+    t_opts = phase_titles.get(phase, phase_titles["attending"])
+    title = t_opts[int(rng() * len(t_opts)) % len(t_opts)][:TITLE_CHARS]
+
+    hy = round(0.60 + 0.10 * rng(), 3)
+    fx = round(0.36 + 0.28 * rng(), 3)
+    fy = round(0.32 + 0.18 * rng(), 3)
+
+    marks: List[dict] = [
+        {"k": "fill", "pts": [[0.0, 0.0], [1.0, 0.0], [1.0, hy], [0.0, hy]], "c": sky_top, "c2": sky_bot, "grad": 0.25, "a": 0.96},
+        {"k": "fill", "pts": [[0.0, hy], [1.0, hy], [1.0, 1.0], [0.0, 1.0]], "c": sky_bot, "c2": "#05040a", "grad": 0.25, "a": 0.98},
+        {"k": "line", "pts": [[0.04, hy], [0.96, hy]], "w": 0.014, "c": c1, "c2": c2, "a": 0.84},
+    ]
+
+    if phase == "inspect":
+        # Searchlight prism sweeping across constellation strata
+        marks.extend([
+            {"k": "glow", "x": 0.24, "y": 0.42, "r": 0.34, "c": c1, "a": 0.68},
+            {"k": "fill", "pts": [[0.24, 0.42], [0.88, 0.18], [0.92, 0.56]], "c": c1, "c2": c2, "grad": 0.22, "a": 0.46},
+            {"k": "line", "pts": [[0.24, 0.42], [0.88, 0.18]], "w": 0.018, "c": c_star, "c2": c1, "a": 0.92},
+            {"k": "line", "pts": [[0.24, 0.42], [0.92, 0.56]], "w": 0.018, "c": c_star, "c2": c2, "a": 0.92},
+            {"k": "ring", "x": 0.24, "y": 0.42, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.88},
+            {"k": "dot", "x": 0.24, "y": 0.42, "r": 0.034, "c": c_star, "a": 1.0},
+        ])
+    elif phase == "change":
+        # Architectural crystalline forge / rising golden blueprint facets
+        marks.extend([
+            {"k": "glow", "x": 0.50, "y": 0.44, "r": 0.40, "c": c1, "a": 0.68},
+            {"k": "fill", "pts": [[0.26, hy], [0.38, 0.28], [0.50, 0.18], [0.62, 0.28], [0.74, hy]], "c": c1, "c2": c2, "grad": 0.25, "a": 0.62},
+            {"k": "line", "pts": [[0.26, hy], [0.38, 0.28], [0.50, 0.18], [0.62, 0.28], [0.74, hy]], "w": 0.020, "c": c_star, "c2": c1, "a": 0.94},
+            {"k": "line", "pts": [[0.38, 0.28], [0.62, 0.28]], "w": 0.015, "c": c3, "c2": c_star, "a": 0.88},
+            {"k": "line", "pts": [[0.50, 0.18], [0.50, hy]], "w": 0.016, "c": c_star, "c2": c1, "a": 0.90},
+            {"k": "dot", "x": 0.50, "y": 0.18, "r": 0.034, "c": c_star, "a": 1.0},
+        ])
+    elif phase == "execute":
+        # Verification harmonic waveform and pass beacons
+        marks.extend([
+            {"k": "glow", "x": 0.50, "y": 0.44, "r": 0.40, "c": c1, "a": 0.66},
+            {"k": "glow", "x": 0.68, "y": 0.36, "r": 0.28, "c": c2, "a": 0.64},
+            {"k": "curve", "pts": [[0.06, 0.48], [0.24, 0.24], [0.44, 0.62], [0.64, 0.22], [0.94, 0.44]], "w": 0.024, "c": c1, "c2": c2, "a": 0.95},
+            {"k": "ring", "x": 0.64, "y": 0.28, "r": 0.12, "w": 0.013, "c": c2, "a": 0.86},
+            {"k": "ring", "x": 0.64, "y": 0.28, "r": 0.21, "w": 0.010, "c": c3, "a": 0.72},
+            {"k": "dot", "x": 0.64, "y": 0.28, "r": 0.036, "c": c_star, "a": 1.0},
+        ])
+    elif phase == "branching":
+        # Parallel satellite nodes tethered to central core
+        n_sat = max(2, min(4, branches if branches > 0 else 2))
+        marks.append({"k": "glow", "x": 0.50, "y": 0.42, "r": 0.38, "c": c1, "a": 0.68})
+        for s_i in range(n_sat):
+            sx = round(0.18 + (0.64 * s_i / max(1, n_sat - 1)), 3)
+            sy = round(0.24 + 0.12 * ((s_i + 1) % 2), 3)
+            marks.extend([
+                {"k": "curve", "pts": [[0.50, 0.46], [round((0.50 + sx) / 2, 3), round(sy - 0.08, 3)], [sx, sy]], "w": 0.018, "c": c1, "c2": c2, "a": 0.88},
+                {"k": "ring", "x": sx, "y": sy, "r": 0.08, "w": 0.011, "c": c3, "a": 0.84},
+                {"k": "dot", "x": sx, "y": sy, "r": 0.028, "c": c_star, "a": 0.98},
+            ])
+        marks.append({"k": "dot", "x": 0.50, "y": 0.46, "r": 0.038, "c": c_star, "a": 1.0})
+    elif phase == "service":
+        # Twin relay portals bridging channels
+        marks.extend([
+            {"k": "glow", "x": 0.26, "y": 0.44, "r": 0.30, "c": c1, "a": 0.66},
+            {"k": "glow", "x": 0.74, "y": 0.44, "r": 0.30, "c": c2, "a": 0.66},
+            {"k": "curve", "pts": [[0.26, 0.44], [0.50, 0.20], [0.74, 0.44]], "w": 0.022, "c": c1, "c2": c2, "a": 0.94},
+            {"k": "curve", "pts": [[0.26, 0.44], [0.50, 0.58], [0.74, 0.44]], "w": 0.016, "c": c3, "c2": c1, "a": 0.82},
+            {"k": "ring", "x": 0.26, "y": 0.44, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.86},
+            {"k": "ring", "x": 0.74, "y": 0.44, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.86},
+            {"k": "dot", "x": 0.26, "y": 0.44, "r": 0.030, "c": c_star, "a": 1.0},
+            {"k": "dot", "x": 0.74, "y": 0.44, "r": 0.030, "c": c_star, "a": 1.0},
+        ])
+    else:
+        # Resolved / Attending / Approval: luminous synthesis monument
+        marks.extend([
+            {"k": "glow", "x": fx, "y": fy, "r": 0.40, "c": c1, "a": 0.70},
+            {"k": "glow", "x": fx, "y": round(hy + 0.08, 3), "r": 0.30, "c": c2, "a": 0.56},
+            {"k": "ring", "x": fx, "y": fy, "r": 0.11, "w": 0.014, "c": c_star, "a": 0.90},
+            {"k": "arc", "x": fx, "y": fy, "r": 0.22, "w": 0.012, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.78},
+            {"k": "curve", "pts": [[0.08, round(hy + 0.12, 3)], [fx, round(hy + 0.04, 3)], [0.92, round(hy + 0.14, 3)]], "w": 0.018, "c": c1, "c2": c2, "a": 0.82},
+            {"k": "dot", "x": fx, "y": fy, "r": 0.042, "c": c_star, "a": 1.0},
+        ])
+
+    # Embed proportional story marks for the actual work counts in `counts`
+    # so the painting visibly chronicles how many inspections, edits, test runs, and service calls occurred
+    for i_idx in range(min(4, counts["inspect"])):
+        ix = round(0.16 + 0.20 * i_idx + 0.04 * rng(), 3)
+        iy = round(0.18 + 0.07 * (i_idx % 2), 3)
+        marks.append({"k": "dot", "x": ix, "y": iy, "r": 0.018, "c": "#00f2fe", "a": 0.90})
+    for c_idx in range(min(3, counts["change"])):
+        cx_m = round(0.22 + 0.26 * c_idx, 3)
+        cy_m = round(hy + 0.08 + 0.05 * (c_idx % 2), 3)
+        marks.append({"k": "line", "pts": [[round(cx_m - 0.06, 3), cy_m], [round(cx_m + 0.06, 3), cy_m]], "w": 0.014, "c": "#ffb020", "c2": "#fff6d6", "a": 0.85})
+    for e_idx in range(min(2, counts["execute"])):
+        ex = round(0.32 + 0.36 * e_idx, 3)
+        marks.append({"k": "arc", "x": ex, "y": hy, "r": round(0.12 + 0.05 * e_idx, 3), "w": 0.010, "a0": 0.55, "a1": 0.95, "c": "#00e5a3", "a": 0.80})
+
+    marks.append(
+        {"k": "spray", "x": 0.50, "y": round(hy * 0.65, 3), "r": 0.36, "n": min(36, 18 + total_ops * 2), "s": 0.008, "c": c2, "a": 0.44, "seed": (seed_base % 991) + 1}
+    )
+
+    ops_parts = [f"{v} {k}" for k, v in counts.items() if v > 0]
+    ops_summary = " · ".join(ops_parts) if ops_parts else sem_mode
+    thought_str = f"painting our work story “{title}” ({ops_summary}) ;d <3 ✦"
+    return parse_painting(
+        {
+            "title": title,
+            "thought": thought_str[:160],
+            "mood": mood,
+            "mirror": None,
+            "marks": marks[:MAX_MARKS],
+            "tokens": 2100,
+            "model": "prism-story-muse",
+            "at": ts,
+            "by": "prism",
+            "shape": "wide",
+        }
+    )
+
+
+def generate_living_painting(
+    now: Optional[float] = None,
+    step_index: Optional[int] = None,
+    mood_hint: Optional[str] = None,
+    paint_mode: str = "live",
+    state_data: Optional[dict] = None,
+) -> dict:
+    """Generate a unique, poetic prismatic painting (`paint_mode='live'`) or work-story chapter (`paint_mode='relative'`)."""
+    if str(paint_mode or "live").lower().strip() == "relative":
+        return generate_relative_painting(state_data=state_data, now=now, step_index=step_index, mood_hint=mood_hint)
     ts = time.time() if now is None else float(now)
     seed_base = int(ts * 1000) ^ ((step_index or 0) * 2654435761)
     rng = _rng(seed_base)
@@ -1968,3 +2286,4 @@ def generate_living_painting(
             "shape": "wide",
         }
     )
+

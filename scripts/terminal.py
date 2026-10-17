@@ -1025,6 +1025,9 @@ def render_prism_frame(
     chat_msgs = ui.get("chat_messages") if isinstance(ui.get("chat_messages"), list) else (
         expr.get("chat") if isinstance(expr.get("chat"), list) else []
     )
+    paint_mode = str(ui.get("paint_mode") or expr.get("paintMode") or "live").lower().strip()
+    if paint_mode not in ("live", "relative"):
+        paint_mode = "live"
 
     # If story is active, show the current story page painting
     shown_painting = expr_painting
@@ -1038,27 +1041,31 @@ def render_prism_frame(
         # §2 Only show the tools when there's at least one painting and room to spare, so they never shrink the painting
         if width >= 34 and height >= 20:
             if unicode_mode:
+                mode_lbl = "🎨 relative" if paint_mode == "relative" else "🎨 live"
                 tool_defs = [
+                    (mode_lbl, "tool_paint_mode"),
                     ("▶ story", "tool_story"),
                     ("⇪ convert", "tool_convert"),
                     ("◎ roll", "tool_roll"),
                 ]
-                if width >= 44:
+                if width >= 48:
                     tool_defs.append(("💬 chat", "tool_chat"))
-                if width >= 54:
+                if width >= 60:
                     tool_defs.append(("⧉ copy", "tool_copy"))
             else:
+                mode_lbl = "[m] rel" if paint_mode == "relative" else "[m] live"
                 tool_defs = [
+                    (mode_lbl, "tool_paint_mode"),
                     ("> story", "tool_story"),
                     ("^ convert", "tool_convert"),
                     ("o roll", "tool_roll"),
                 ]
-                if width >= 44:
+                if width >= 48:
                     tool_defs.append(("[?] chat", "tool_chat"))
-                if width >= 54:
+                if width >= 60:
                     tool_defs.append(("[c] copy", "tool_copy"))
 
-            sep = "   " if width >= 56 else "  "
+            sep = "   " if width >= 64 else "  "
             sep_w = len(sep)
             total_tools_w = sum(sum(_char_cells(c) for c in lbl) for lbl, _ in tool_defs) + sep_w * (len(tool_defs) - 1)
             tx0 = max(1, width - total_tools_w - 1)
@@ -1066,7 +1073,8 @@ def render_prism_frame(
             for lbl, act in tool_defs:
                 lbl_w = sum(_char_cells(c) for c in lbl)
                 is_active_tool = (
-                    (act == "tool_story" and story_st and story_st.get("active"))
+                    (act == "tool_paint_mode" and paint_mode == "relative")
+                    or (act == "tool_story" and story_st and story_st.get("active"))
                     or (act == "tool_convert" and menu_step in (1, 2))
                     or (act == "tool_chat" and chat_active)
                 )
@@ -1110,10 +1118,11 @@ def render_prism_frame(
                 mult = n_sess if target_lbl == "all" else 1
                 hdr = "⇪ convert · which way?" if unicode_mode else "^ convert - which way?"
                 opts = [
-                    ("1. Truest · terminal cell weight & 4-layer depth", "no tokens", "menu_way_truest"),
-                    ("2. Faithful · same marks, large and fine", "no tokens", "menu_way_faithful"),
-                    ("3. Refined · revisited subject", f"~{2.1 * mult:.1f}k tokens", "menu_way_refined"),
-                    ("4. Interpretive · freely reimagined", f"~{2.4 * mult:.1f}k tokens", "menu_way_interpretive"),
+                    ("1. Truest · terminal cell weight & 16-level steps", "no tokens", "menu_way_truest"),
+                    ("2. Layered · 4-layer depth, shadow & bloom", "no tokens", "menu_way_layered"),
+                    ("3. Faithful · same marks, large and fine", "no tokens", "menu_way_faithful"),
+                    ("4. Refined · revisited subject", f"~{2.1 * mult:.1f}k tokens", "menu_way_refined"),
+                    ("5. Interpretive · freely reimagined", f"~{2.4 * mult:.1f}k tokens", "menu_way_interpretive"),
                     ("‹ back" if unicode_mode else "< back", "", "menu_back"),
                 ]
             if m_top < height:
@@ -1202,7 +1211,7 @@ def generate_painting_chat_reply(user_msg: str, painting_raw: Optional[dict]) ->
         return f"tuned to {mood} dispersion · where the {kinds_desc} overlap past 1.0x, light spills into warm white ✦"
 
     if any(w in q for w in ("how", "mark", "stroke", "made", "draw", "paint", "tech", "layer")):
-        return f"laid down {n_marks} marks ({kinds_desc}) across 4 depth layers with soft shadow and half-block cells ▀"
+        return f"laid down {n_marks} marks ({kinds_desc}) at terminal cell weight with 16-level soft bands and half-block cells ▀"
 
     if any(w in q for w in ("mean", "story", "about", "why", "feel", "idea", "inspir", "title")):
         thought = str(p.get("thought") or "").strip()
@@ -1739,15 +1748,16 @@ def handle_paint(argv: List[str]) -> None:
         sys.exit(1)
 
     pp = argparse.ArgumentParser(prog="prism paint", description="Paint a 24-bit half-block artwork below Prism in her terminal companion")
-    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('opening', 'convert', 'clear', 'off'), or title")
+    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('live', 'relative', 'opening', 'convert', 'clear', 'off'), or title")
     pp.add_argument("--title", default=None, help="Custom painting title ('✎ Title')")
     pp.add_argument("--thought", default=None, help="Optional thought line for Prism to say above the painting")
     pp.add_argument("--mood", choices=list(MOOD_STOPS.keys()), default=None, help="Chromatic mood palette")
+    pp.add_argument("--mode", dest="paint_mode", choices=["live", "relative"], default=None, help="Painting muse mode: 'live' (poetic) or 'relative' (work story)")
     pp.add_argument("--shape", choices=["wide", "square", "tall"], default=None, help="Canvas shape")
     pp.add_argument("--opening", action="store_true", help="Seed a session opening painting from only the hour, month, and one random word")
     pp.add_argument("--json", dest="json_marks", default=None, help="Raw JSON string with {'title': ..., 'marks': [...]}")
     pp.add_argument("--convert", action="store_true", help="Also export SVG + PNG + index.html to prism-paintings/")
-    pp.add_argument("--way", choices=["truest", "faithful", "refined", "interpretive"], default="truest", help="Convert way")
+    pp.add_argument("--way", choices=["truest", "layered", "faithful", "refined", "interpretive"], default="truest", help="Convert way")
     parsed = pp.parse_args(argv)
 
     words = [w.strip() for w in parsed.action if w.strip()]
@@ -1759,6 +1769,13 @@ def handle_paint(argv: List[str]) -> None:
     if words and words[0].lower() == "convert":
         handle_convert(words[1:])
         return
+
+    cur = mcp_server.read_expression() or {}
+    selected_mode = parsed.paint_mode
+    if not selected_mode and words and words[0].lower() in ("live", "relative", "story-mode", "work"):
+        selected_mode = "relative" if words[0].lower() in ("relative", "story-mode", "work") else "live"
+        words = words[1:]
+    effective_mode = selected_mode or str(cur.get("paintMode") or "live")
 
     if parsed.opening or (words and words[0].lower() == "opening"):
         seed_w = words[1] if len(words) > 1 else None
@@ -1772,7 +1789,7 @@ def handle_paint(argv: List[str]) -> None:
         preset_idx = None
         if words and words[0].isdigit():
             preset_idx = int(words[0])
-        elif words and words[0].lower() not in ("new", "living", "auto"):
+        elif words and words[0].lower() not in ("new", "living", "auto", "live", "relative"):
             kw = " ".join(words).lower()
             for idx_c, c_p in enumerate(painter.CURATED_PAINTINGS):
                 if kw in c_p["title"].lower() or kw in c_p["mood"].lower():
@@ -1781,10 +1798,16 @@ def handle_paint(argv: List[str]) -> None:
         if preset_idx is not None:
             paint_obj = painter.choose_curated_painting(preset_idx)
         else:
-            cur = mcp_server.read_expression() or {}
             stats = cur.get("paintStats") or {}
             next_idx = int(stats.get("paintings", 0)) + 1
-            paint_obj = painter.generate_living_painting(step_index=next_idx, mood_hint=parsed.mood)
+            feed_d = presence_feed.find_active_feed() if (presence_feed and hasattr(presence_feed, "find_active_feed")) else None
+            st_now = load_feed_state(feed_d) if (feed_d and feed_d.is_dir()) else {}
+            paint_obj = painter.generate_living_painting(
+                step_index=next_idx,
+                mood_hint=parsed.mood,
+                paint_mode=effective_mode,
+                state_data=st_now,
+            )
 
     if parsed.title:
         paint_obj["title"] = parsed.title[:48]
@@ -1799,26 +1822,27 @@ def handle_paint(argv: List[str]) -> None:
         thought=parsed.thought or paint_obj.get("thought") or None,
         mood=parsed.mood or paint_obj.get("mood"),
         painting=paint_obj,
+        paint_mode=effective_mode,
     )
     svg_note = ""
     if parsed.convert:
         res = painter.convert_painting(paint_obj, gallery_dir=Path.cwd() / "prism-paintings", way=parsed.way)
         svg_note = f" · exported {parsed.way} SVG & PNG to {res['svg']}"
     stats = payload.get("paintStats") or {}
-    print(f"✎ Painted below Prism: \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks, session paintings: {stats.get('paintings', 1)}){svg_note}")
+    print(f"✎ Painted below Prism ({effective_mode}): \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks, session paintings: {stats.get('paintings', 1)}){svg_note}")
 
 
 def handle_convert(argv: List[str]) -> None:
     """CLI handler for `prism convert` (§4):
-    Supports `this`, `every-way` (`every`), `all`, or `roll`, plus `truest`, `faithful`, `refined`, `interpretive`, and `hd`/`4k`.
+    Supports `this`, `every-way` (`every`), `all`, or `roll`, plus `truest`, `layered`, `faithful`, `refined`, `interpretive`, and `hd`/`4k`.
     """
     if painter is None:
         print("Painter module is not available.")
         sys.exit(1)
 
     cp = argparse.ArgumentParser(prog="prism convert", description="Convert session paintings to high-res SVG + PNG + HTML gallery")
-    cp.add_argument("tokens", nargs="*", help="[this|every|all|roll] [truest|faithful|refined|interpretive] [hd|4k]")
-    cp.add_argument("--way", choices=["truest", "faithful", "refined", "interpretive"], default=None)
+    cp.add_argument("tokens", nargs="*", help="[this|every|all|roll] [truest|layered|faithful|refined|interpretive] [hd|4k]")
+    cp.add_argument("--way", choices=["truest", "layered", "faithful", "refined", "interpretive"], default=None)
     cp.add_argument("--size", choices=["hd", "4k"], default="hd")
     cp.add_argument("--out", type=Path, default=None)
     parsed = cp.parse_args(argv)
@@ -1836,7 +1860,7 @@ def handle_convert(argv: List[str]) -> None:
             what = "all"
         elif tl == "roll":
             what = "roll"
-        elif tl in ("truest", "faithful", "refined", "interpretive"):
+        elif tl in ("truest", "layered", "faithful", "refined", "interpretive"):
             way = tl
         elif tl in ("hd", "4k"):
             size = tl
@@ -1864,12 +1888,13 @@ def handle_convert(argv: List[str]) -> None:
 
     results = []
     if what == "every":
-        ways = ["truest", "faithful", "refined", "interpretive"]
+        ways = ["truest", "layered", "faithful", "refined", "interpretive"]
+        n_w = len(ways)
         for idx, w_item in enumerate(ways):
-            _prog(f"laying down “{cur_p.get('title', '')[:20]}” · {idx + 1}/4", idx / 4.0)
+            _prog(f"laying down “{cur_p.get('title', '')[:20]}” · {idx + 1}/{n_w}", idx / float(n_w))
             res = painter.convert_painting(cur_p, gallery_dir=out_dir, way=w_item, size=size)
             results.append(res)
-        _prog(f"crystallized all 4 ways · “{cur_p.get('title', '')[:20]}”", 1.0)
+        _prog(f"crystallized all {n_w} ways · “{cur_p.get('title', '')[:20]}”", 1.0)
     elif what == "all":
         targets = session_paintings if session_paintings else [cur_p]
         n_t = len(targets)
@@ -2174,17 +2199,23 @@ def main():
             seen_resolve_seq = int(load_feed_state(feed_dir).get("lastResolveSeq") or 0)
         last_auto_paint_wall = time.time()
 
-        # Interactive UI state for story, convert menu, side chat, and background jobs
+        # Interactive UI state for story, convert menu, side chat, paint mode, and background jobs
         initial_chat = (
             expr_state.get("chat")
             if isinstance(expr_state, dict) and isinstance(expr_state.get("chat"), list)
             else []
+        )
+        initial_paint_mode = (
+            str(expr_state.get("paintMode") or "live")
+            if isinstance(expr_state, dict)
+            else "live"
         )
         ui_state: Dict[str, Any] = {
             "story": None,
             "menu_step": 0,
             "convert_target": "this",
             "session_count": 1,
+            "paint_mode": initial_paint_mode if initial_paint_mode in ("live", "relative") else "live",
             "chat_active": bool(args.chat),
             "chat_input": "",
             "chat_messages": list(initial_chat),
@@ -2275,11 +2306,12 @@ def main():
                     if target_what == "roll" and roll is not None:
                         roll.build_session_roll(all_p, out_dir, mode="720p", on_progress=_on_prog)
                     elif target_what == "every":
-                        ways = ["truest", "faithful", "refined", "interpretive"]
+                        ways = ["truest", "layered", "faithful", "refined", "interpretive"]
+                        n_ways = len(ways)
                         for idx_w, w_name in enumerate(ways):
-                            _on_prog(f"laying down “{held_p.get('title', '')[:18]}” · {idx_w + 1}/4", idx_w / 4.0)
+                            _on_prog(f"laying down “{held_p.get('title', '')[:18]}” · {idx_w + 1}/{n_ways}", idx_w / float(n_ways))
                             painter.convert_painting(held_p, gallery_dir=out_dir, way=w_name)
-                        _on_prog(f"crystallized 4 ways · “{held_p.get('title', '')[:18]}”", 1.0)
+                        _on_prog(f"crystallized {n_ways} ways · “{held_p.get('title', '')[:18]}”", 1.0)
                     elif target_what == "all":
                         n_all = len(all_p)
                         for idx_p, p_item in enumerate(all_p):
@@ -2300,9 +2332,33 @@ def main():
             t_worker.start()
 
         def _dispatch_action(action: str) -> None:
-            nonlocal story_page_started, story_paused_elapsed
+            nonlocal story_page_started, story_paused_elapsed, expr_state, default_painting, last_auto_paint_wall
             st = ui_state.get("story")
-            if action == "tool_story":
+            if action == "tool_paint_mode":
+                cur_pm = str(ui_state.get("paint_mode") or "live")
+                new_pm = "relative" if cur_pm == "live" else "live"
+                ui_state["paint_mode"] = new_pm
+                if painter is not None and mcp_server is not None:
+                    now_t = time.time()
+                    last_auto_paint_wall = now_t
+                    stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else {}) or {}
+                    next_idx = int(stats.get("paintings", 0)) + 1
+                    cur_st = load_feed_state(feed_dir) if (feed_dir and feed_dir.is_dir()) else {}
+                    new_p = painter.generate_living_painting(
+                        now=now_t,
+                        step_index=next_idx,
+                        mood_hint=cur_st.get("mood"),
+                        paint_mode=new_pm,
+                        state_data=cur_st,
+                    )
+                    expr_state = mcp_server.write_expression(
+                        thought=new_p.get("thought"),
+                        mood=new_p.get("mood"),
+                        painting=new_p,
+                        paint_mode=new_pm,
+                    )
+                    default_painting = new_p
+            elif action == "tool_story":
                 if isinstance(st, dict) and st.get("active"):
                     ui_state["story"] = None
                 else:
@@ -2463,10 +2519,12 @@ def main():
                 if "1" in buf:
                     _dispatch_action("menu_way_truest")
                 elif "2" in buf:
-                    _dispatch_action("menu_way_faithful")
+                    _dispatch_action("menu_way_layered")
                 elif "3" in buf:
-                    _dispatch_action("menu_way_refined")
+                    _dispatch_action("menu_way_faithful")
                 elif "4" in buf:
+                    _dispatch_action("menu_way_refined")
+                elif "5" in buf:
                     _dispatch_action("menu_way_interpretive")
                 elif "\x1b" in buf or "b" in buf or "q" in buf:
                     _dispatch_action("menu_back")
@@ -2493,6 +2551,8 @@ def main():
 
             if "/" in buf or "t" in buf or "\r" in buf or "\n" in buf:
                 _dispatch_action("chat_focus")
+            elif "m" in buf:
+                _dispatch_action("tool_paint_mode")
             elif "s" in buf:
                 _dispatch_action("tool_story")
             elif "c" in buf:
@@ -2558,8 +2618,11 @@ def main():
                 if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.20):
                     last_expr_check = t
                     expr_state = mcp_server.read_expression()
-                    if isinstance(expr_state, dict) and isinstance(expr_state.get("chat"), list):
-                        ui_state["chat_messages"] = expr_state["chat"]
+                    if isinstance(expr_state, dict):
+                        if isinstance(expr_state.get("chat"), list):
+                            ui_state["chat_messages"] = expr_state["chat"]
+                        if expr_state.get("paintMode") in ("live", "relative"):
+                            ui_state["paint_mode"] = expr_state["paintMode"]
                     if painter is not None:
                         latest_shared = painter.load_session_paintings(Path.cwd())
                         if latest_shared:
@@ -2608,11 +2671,19 @@ def main():
                         last_auto_paint_wall = now_wall
                         stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else {}) or {}
                         next_idx = int(stats.get("paintings", 0)) + 1
-                        new_p = painter.generate_living_painting(now=now_wall, step_index=next_idx, mood_hint=state.get("mood"))
+                        cur_pm = str(ui_state.get("paint_mode") or (expr_state or {}).get("paintMode") or "live")
+                        new_p = painter.generate_living_painting(
+                            now=now_wall,
+                            step_index=next_idx,
+                            mood_hint=state.get("mood"),
+                            paint_mode=cur_pm,
+                            state_data=state,
+                        )
                         expr_state = mcp_server.write_expression(
                             thought=new_p.get("thought"),
                             mood=new_p.get("mood"),
                             painting=new_p,
+                            paint_mode=cur_pm,
                         )
                         default_painting = new_p
                         if ui_state.get("story") and ui_state["story"].get("active"):

@@ -141,7 +141,9 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
         actions = {hb["action"] for hb in hitboxes}
         self.assertTrue({"tool_story", "tool_convert", "tool_roll", "story_pause", "story_back", "story_next", "story_end"}.issubset(actions))
 
-    def test_four_way_convert_svg_and_png(self):
+    def test_five_way_convert_svg_and_png_including_posterized_truest_and_layered(self):
+        from PIL import Image
+
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "prism-paintings"
             p_spark = painter.parse_painting({
@@ -154,17 +156,72 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
                     {"k": "dot", "x": 0.5, "y": 0.5, "r": 0.04, "c": [1.0, 0.95, 0.9], "a": 1.0},
                 ],
             })
-            for way in ("truest", "faithful", "refined", "interpretive"):
+            for way in ("truest", "layered", "faithful", "refined", "interpretive"):
                 res = painter.convert_painting(p_spark, gallery_dir=out_dir, way=way)
                 svg_text = Path(res["svg"]).read_text(encoding="utf-8")
                 self.assertTrue(Path(res["png"]).is_file())
-                self.assertIn(f"Spark · ", svg_text)
+                self.assertIn("Spark · ", svg_text)
                 self.assertIn(f"· {way}", svg_text)
                 if way == "truest":
+                    # New truest: flat cell-weight marks, 16-level discrete sRGB filter, no shadow/bloom/blur
+                    self.assertIn('<filter id="levels" color-interpolation-filters="sRGB">', svg_text)
+                    self.assertIn('<feFuncR type="discrete"', svg_text)
+                    self.assertIn('<g filter="url(#levels)">', svg_text)
+                    self.assertNotIn('id="shadow"', svg_text)
+                    self.assertNotIn('id="bloom"', svg_text)
+                    self.assertNotIn('feGaussianBlur', svg_text)
+
+                    # Every RGB byte of the truest PNG's painting area (above caption) must be a multiple of 17
+                    with Image.open(res["png"]) as im:
+                        rgb_im = im.convert("RGB")
+                        w, h = rgb_im.size
+                        _, _, art_h = painter._dimensions_for_shape("wide", size="hd")
+                        art_crop = rgb_im.crop((0, 0, w, art_h))
+                        raw_bytes = art_crop.tobytes()
+                        non_multiples = [b for b in raw_bytes if (b % 17) != 0]
+                        self.assertEqual(
+                            len(non_multiples),
+                            0,
+                            f"Expected 100% of truest PNG painting bytes to be multiples of 17, found {len(non_multiples)} non-multiples",
+                        )
+                elif way == "layered":
+                    # Old 4-layer depth pass preserved under `layered` for comparison
                     self.assertIn('id="layer0"', svg_text)
                     self.assertIn('id="layer3"', svg_text)
                     self.assertIn('id="shadow"', svg_text)
                     self.assertIn('id="bloom"', svg_text)
+
+    def test_live_and_relative_painting_modes(self):
+        # 1. `live` mode generates poetic spontaneous paintings
+        p_live = painter.generate_living_painting(step_index=2, paint_mode="live")
+        self.assertEqual(p_live["model"], "prism-muse")
+        self.assertNotIn("Ch.", p_live["title"])
+
+        # 2. `relative` mode generates work-story chapters shaped by active tools & spectrum
+        work_state = {
+            "mode": "refracting",
+            "activeBranches": 0,
+            "lanes": [{"kind": "change"}],
+            "spectrum": {"inspect": 3, "change": 2, "execute": 1},
+        }
+        p_rel = painter.generate_living_painting(
+            step_index=3, paint_mode="relative", state_data=work_state
+        )
+        self.assertEqual(p_rel["model"], "prism-story-muse")
+        self.assertIn("Ch.3 ·", p_rel["title"])
+        self.assertEqual(p_rel["mood"], "solar")
+        self.assertIn("3 inspect", p_rel["thought"])
+        self.assertIn("3 change", p_rel["thought"])
+
+        # 3. Top-right toolbar renders `🎨 live` / `🎨 relative` toggle with `tool_paint_mode` hitbox
+        state = {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "hover": "Prism · ready"}
+        expr = {"v": 1, "painting": p_rel, "paintMode": "relative", "paintStats": {"paintings": 3, "tokens": 6300}}
+        hitboxes = []
+        frame = terminal.render_prism_frame(state, 72, 34, t=1.0, expression=expr, ui_state={"paint_mode": "relative"}, hitboxes=hitboxes)
+        plain = terminal._strip_colors(frame)
+        self.assertIn("🎨 relative", plain)
+        actions = {hb["action"] for hb in hitboxes}
+        self.assertIn("tool_paint_mode", actions)
 
     def test_roll_music_and_mp4_generation(self):
         with tempfile.TemporaryDirectory() as tmp:
