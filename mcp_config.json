@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "prism": {
+      "command": "python3",
+      "args": [
+        "-c",
+        "import os, pathlib, runpy; cands = [pathlib.Path(os.path.expanduser('~/.gemini/config/plugins/cyclops-prism/scripts/mcp_server.py')), pathlib.Path('scripts/mcp_server.py')]; p = next((x for x in cands if x.is_file()), cands[0]); runpy.run_path(str(p), run_name='__main__')"
+      ]
+    }
+  }
+}

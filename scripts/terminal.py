@@ -34,6 +34,10 @@ try:
     import link_view
 except ImportError:
     link = link_view = None
+try:
+    import mcp_server
+except ImportError:
+    mcp_server = None
 
 # Truecolor RGB escape sequences
 C_RESET = "\033[0m"
@@ -57,6 +61,20 @@ RGB_WHITE = (255, 246, 214)    # Crystalline Warm White #FFF6D6
 RGB_RED = (255, 77, 77)        # Approval Red #FF4D4D
 RGB_DIM = (107, 114, 128)      # Neutral Gray #6B7280
 RGB_DARK = (55, 65, 81)        # Dark Gray #374151
+RGB_ORCHID = (196, 140, 255)   # Luminous Orchid #C48CFF
+RGB_ROSE = (255, 110, 180)     # Rose Coral #FF6EB4
+RGB_MINT = (130, 255, 210)     # Bioluminescent Mint #82FFD2
+RGB_ICE = (165, 220, 255)      # Moonlit Ice #A5DCFF
+
+MOOD_STOPS = {
+    "aurora": ([RGB_CYAN, RGB_TEAL, RGB_ORCHID, RGB_WHITE], [RGB_TEAL, RGB_WHITE, RGB_CYAN, RGB_VIOLET]),
+    "solar": ([RGB_GOLD, RGB_AMBER, RGB_ROSE, RGB_WHITE], [RGB_WHITE, RGB_GOLD, RGB_AMBER, RGB_CYAN]),
+    "nebula": ([RGB_ORCHID, RGB_ROSE, RGB_VIOLET, RGB_CYAN], [RGB_CYAN, RGB_ORCHID, RGB_WHITE, RGB_ROSE]),
+    "emerald": ([RGB_TEAL, RGB_MINT, RGB_CYAN, RGB_WHITE], [RGB_MINT, RGB_TEAL, RGB_GOLD, RGB_CYAN]),
+    "supernova": ([RGB_WHITE, RGB_GOLD, RGB_RED, RGB_CYAN], [RGB_GOLD, RGB_WHITE, RGB_ORCHID, RGB_CYAN]),
+    "zen": ([RGB_ICE, RGB_MINT, RGB_WHITE, RGB_CYAN], [RGB_WHITE, RGB_ICE, RGB_TEAL, RGB_ICE]),
+    "crystalline": ([RGB_CYAN, RGB_WHITE, RGB_TEAL, RGB_GOLD], [RGB_WHITE, RGB_CYAN, RGB_ORCHID, RGB_WHITE]),
+}
 
 KIND_COLOR_MAP = {
     "inspect": C_CYAN,
@@ -96,9 +114,13 @@ def _sample_gradient(stops: List[tuple], pos: float) -> str:
     return f"\033[38;2;{r};{g};{b}m"
 
 
-def _get_ring_color(ring_id: int, phi: float, theta: float, sem_mode: str, offer: Optional[str], primary_kind: str = "") -> str:
+def _get_ring_color(ring_id: int, phi: float, theta: float, sem_mode: str, offer: Optional[str], primary_kind: str = "", mood: Optional[str] = None) -> str:
     """Calculate the living chromatic dispersion along Prism's polarized rings."""
     pos = ((phi + (theta if ring_id == 1 else -theta)) / (2.0 * math.pi)) % 1.0
+
+    if mood and mood in MOOD_STOPS and sem_mode not in ("ended", "halted", "approval"):
+        s1, s2 = MOOD_STOPS[mood]
+        return _sample_gradient(s1 if ring_id == 1 else s2, pos)
 
     if sem_mode == "approval":
         return _sample_gradient([RGB_RED, RGB_GOLD, RGB_RED, RGB_GOLD], pos)
@@ -239,9 +261,11 @@ def _get_prism_voice(
     return f"{w_l}  {phrase}  {w_r}"
 
 
-def _get_facet_color(pos: float, t: float, sem_mode: str, offer: Optional[str], primary_kind: str = "") -> str:
+def _get_facet_color(pos: float, t: float, sem_mode: str, offer: Optional[str], primary_kind: str = "", mood: Optional[str] = None) -> str:
     """Calculate living iridescent shimmer across Prism's central jewel facets."""
     phase = (pos + t * 0.35) % 1.0
+    if mood and mood in MOOD_STOPS and sem_mode not in ("ended", "halted", "approval"):
+        return _sample_gradient(MOOD_STOPS[mood][0], phase)
     if sem_mode == "approval":
         return _sample_gradient([RGB_RED, RGB_GOLD, RGB_WHITE, RGB_RED], phase)
     if sem_mode in ("ended", "halted"):
@@ -314,10 +338,12 @@ def render_prism_frame(
     calm: bool = False,
     link_state: Optional[dict] = None,
     link_sheets: Optional[dict] = None,
+    expression: Optional[dict] = None,
 ) -> str:
     """Render one complete ASCII/ANSI terminal frame for Prism.
 
     link_state: the Cyclops Link view (peers and threads) when Link is on; None draws Prism alone.
+    expression: optional live payload from Prism's Expressive Channel (thought, mood, effect, glyph, art).
     """
     grid = TerminalGrid(width, height, use_color=use_color)
     cx = width // 2
@@ -332,6 +358,13 @@ def render_prism_frame(
     spectrum = state_data.get("spectrum") or {}
     hover = state_data.get("hover", "Prism · ready")
 
+    expr = expression or {}
+    expr_thought = str(expr.get("thought") or "").strip()
+    expr_mood = str(expr.get("mood") or "").strip().lower() or None
+    expr_effect = str(expr.get("effect") or "").strip().lower() or None
+    expr_glyph = str(expr.get("glyph") or "").strip()[:2]
+    expr_art = expr.get("art") if isinstance(expr.get("art"), list) else []
+
     primary_kind = lanes[0].get("kind", "") if lanes else ""
 
     # Glyph sets
@@ -341,6 +374,8 @@ def render_prism_frame(
             g_core = "·"
         elif sem_mode == "approval":
             g_core = "!"
+        elif expr_glyph:
+            g_core = expr_glyph[0]
         elif offer or sem_mode == "resolved":
             g_core = "✦"
         elif sem_mode == "synthesizing":
@@ -361,6 +396,8 @@ def render_prism_frame(
         g_spark = "·"
     else:
         g_core = "." if ended else ("!" if sem_mode == "approval" else ("*" if offer else "o"))
+        if expr_glyph and not ended and sem_mode != "approval" and ord(expr_glyph[0]) < 128:
+            g_core = expr_glyph[0]
         g_sat = "#"
         g_ring1 = "/"
         g_ring2 = "\\"
@@ -416,7 +453,9 @@ def render_prism_frame(
     speed = 0.0 if (reduced_motion or ended) else (0.4 if calm else 0.85)
     theta = t * speed
     animate_live = not (reduced_motion or ended) and t > 0.0
-    breath = 1.0 + (0.035 * math.sin(t * 1.6) if animate_live else 0.0)
+    breath_amp = 0.08 if expr_effect == "pulse" else 0.035
+    breath_freq = 3.2 if expr_effect == "pulse" else 1.6
+    breath = 1.0 + (breath_amp * math.sin(t * breath_freq) if animate_live else 0.0)
     eff_rx = ring_radius_x * breath
     eff_ry = ring_radius_y * breath
     has_link_peers = bool(link_state and link_state.get("peers"))
@@ -435,7 +474,7 @@ def render_prism_frame(
                 twinkle = math.sin(t * 2.4 + a_idx * 1.7)
                 if twinkle > -0.2:
                     ch_aura = g_star if twinkle > 0.78 else (g_glint if twinkle > 0.35 else g_spark)
-                    col_aura = _get_facet_color(a_idx / len(aura_angles), t, sem_mode, offer, primary_kind) if use_color else ""
+                    col_aura = _get_facet_color(a_idx / len(aura_angles), t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
                     grid.put(ax, ay, ch_aura, col_aura)
 
     # 1. Outer Polarized Rings with living chromatic dispersion & caustic glints
@@ -447,18 +486,18 @@ def render_prism_frame(
         rx1 = cx + int(math.cos(phi + theta) * eff_rx)
         ry1 = cy + int(math.sin(phi + theta) * eff_ry * 0.7 - math.cos(phi + theta) * 1.5)
         is_glint1 = animate_live and ((i + glint_offset) % glint_stride == 0)
-        col1 = (C_WHITE if is_glint1 else _get_ring_color(1, phi, theta, sem_mode, offer, primary_kind)) if use_color else ""
+        col1 = (C_WHITE if is_glint1 else _get_ring_color(1, phi, theta, sem_mode, offer, primary_kind, mood=expr_mood)) if use_color else ""
         grid.put(rx1, ry1, g_glint if is_glint1 else g_ring1, col1)
 
         # Ring 2 (counter-angle)
         rx2 = cx + int(math.cos(phi - theta) * eff_rx)
         ry2 = cy + int(math.sin(phi - theta) * eff_ry * 0.7 + math.cos(phi - theta) * 1.5)
         is_glint2 = animate_live and ((i - glint_offset) % glint_stride == 0)
-        col2 = (C_WHITE if is_glint2 else _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind)) if use_color else ""
+        col2 = (C_WHITE if is_glint2 else _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind, mood=expr_mood)) if use_color else ""
         grid.put(rx2, ry2, g_glint if is_glint2 else g_ring2, col2)
 
-    # 1b. State-Specific Crystalline Choreography inside & around the Ring Cavity
-    if animate_live and height >= 16:
+    # 1b. State-Specific & Expressive Crystalline Choreography inside & around the Ring Cavity
+    if (animate_live or expr_effect) and not ended and height >= 16:
         if sem_mode == "idle":
             # Gentle Lissajous harmonic fireflies drifting inside the ring cavity
             for m_idx in range(2):
@@ -518,6 +557,36 @@ def render_prism_frame(
                     b_ch = g_star if b_pulse < 0.45 else g_glint
                     b_col = (C_WHITE if b_pulse < 0.45 else (C_GOLD if b_i % 2 == 0 else C_CYAN)) if use_color else ""
                     grid.put(rx_b, ry_b, b_ch, b_col)
+
+        # Expressive Channel Special Particle Animations (requested by Prism via MCP or CLI)
+        if expr_effect in ("starburst", "bloom"):
+            burst_dirs = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+            for b_i, (dx_b, dy_b) in enumerate(burst_dirs):
+                if has_link_peers and dy_b > 0:
+                    continue
+                b_pulse = (t * 2.0 + b_i * 0.125) % 1.0
+                rx_b = cx + dx_b * (5 + int(b_pulse * max(4, ring_radius_x - 4)))
+                ry_b = cy + dy_b * (2 + int(b_pulse * max(2, ring_radius_y - 1)))
+                if 1 <= ry_b < hud_y - 2 and 2 <= rx_b < width - 2:
+                    b_ch = g_star if b_pulse < 0.5 else g_glint
+                    b_col = _get_facet_color(b_i / 8.0, t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
+                    grid.put(rx_b, ry_b, b_ch, b_col)
+        elif expr_effect == "meteor":
+            for m_i in range(4):
+                m_prog = (t * 1.8 + m_i * 0.25) % 1.0
+                mx_head = int(2 + m_prog * max(10, width - 6))
+                my_head = max(1, min(cy - 1 if has_link_peers else hud_y - 3, 2 + ((m_i * 3 + int(m_prog * 6)) % max(3, cy))))
+                grid.put(mx_head, my_head, g_star, C_WHITE if use_color else "")
+                grid.put(mx_head - 1, my_head, g_glint, C_GOLD if use_color else "")
+                grid.put(mx_head - 2, my_head, "─" if unicode_mode else "-", C_CYAN if use_color else "")
+        elif expr_effect == "ripple":
+            for r_idx in range(3):
+                r_frac = (t * 1.4 + r_idx * 0.33) % 1.0
+                r_dist = 5 + int(r_frac * max(4, ring_radius_x))
+                l_rip, r_rip = ("⟨", "⟩") if unicode_mode else ("(", ")")
+                r_col = _get_facet_color(r_frac, t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
+                grid.put(cx - r_dist, cy, l_rip, r_col)
+                grid.put(cx + r_dist, cy, r_rip, r_col)
 
     # 2. Refraction rays for active calls (with multi-photon pulses & endpoint diffraction flares)
     if lanes:
@@ -612,9 +681,9 @@ def render_prism_frame(
         lb, rb = "<", ">"
         sl, bs = "/", "\\"
 
-    f_col_top = _get_facet_color(0.0, t, sem_mode, offer, primary_kind) if use_color else ""
-    f_col_mid = _get_facet_color(0.25, t, sem_mode, offer, primary_kind) if use_color else ""
-    f_col_bot = _get_facet_color(0.5, t, sem_mode, offer, primary_kind) if use_color else ""
+    f_col_top = _get_facet_color(0.0, t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
+    f_col_mid = _get_facet_color(0.25, t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
+    f_col_bot = _get_facet_color(0.5, t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
     inner_facet_col = (C_WHITE if (offer or sem_mode in ("attending", "refracting")) else f_col_mid) if use_color else ""
 
     # Rotating clockwork highlight across inner cardinal facets when animate_live
@@ -673,6 +742,21 @@ def render_prism_frame(
         grid.put(cx, cy + 1, dn, facet_col if use_color else "")
         grid.put(cx, cy, g_core, core_center_col if use_color else "")
 
+    # 4b. Expressive Channel Floating Art Banner (top of canvas when Prism projects custom ASCII/Unicode art)
+    if expr_art and height >= 18 and not has_link_peers:
+        for art_i, raw_line in enumerate(expr_art[:5]):
+            art_y = 1 + art_i
+            if art_y >= cy - 3:
+                break
+            art_line = str(raw_line)[: max(1, width - 4)]
+            if not unicode_mode:
+                art_line = "".join(ch if ord(ch) < 128 else "*" for ch in art_line)
+            ax0 = max(1, (width - len(art_line)) // 2)
+            for c_idx, ch_a in enumerate(art_line):
+                if ch_a != " ":
+                    col_a = _get_facet_color(c_idx / max(1, len(art_line)), t, sem_mode, offer, primary_kind, mood=expr_mood) if use_color else ""
+                    grid.put(ax0 + c_idx, art_y, ch_a, col_a)
+
     # 5. Cyclops Link: Spark and Keeper in their own looks at their seats, and the threads they declare
     hud_y = height - 2
     if link_state is not None and link_view is not None:
@@ -703,7 +787,9 @@ def render_prism_frame(
             return
         rgb_orchid = (196, 140, 255)
         rgb_silver = (176, 190, 210)
-        if sem_mode in ("ended", "halted"):
+        if expr_mood and expr_mood in MOOD_STOPS and sem_mode not in ("ended", "halted", "approval"):
+            v_stops = MOOD_STOPS[expr_mood][0]
+        elif sem_mode in ("ended", "halted"):
             v_stops = [rgb_silver, (140, 155, 175), rgb_silver]
         elif sem_mode == "approval":
             v_stops = [RGB_RED, RGB_GOLD, RGB_WHITE, RGB_GOLD]
@@ -736,7 +822,29 @@ def render_prism_frame(
                 col_v = _sample_gradient(v_stops, pos_v)
             grid.put(x0 + i_ch, y_row, ch_v, col_v)
 
-    voice_line = _get_prism_voice(sem_mode, offer, primary_kind, spectrum, t, unicode_mode)
+    if expr_thought:
+        raw_t = expr_thought if unicode_mode else "".join(ch if ord(ch) < 128 else "-" for ch in expr_thought.replace("·", "-"))
+        max_inner = max(8, width - 10)
+        if len(raw_t) > max_inner and animate_live:
+            padded = raw_t + "   ·   "
+            offset_m = int(t * 6.0) % len(padded)
+            doubled = padded + padded
+            raw_t = doubled[offset_m : offset_m + max_inner]
+        elif len(raw_t) > max_inner:
+            raw_t = raw_t[:max_inner]
+        if unicode_mode:
+            wings = ["✧", "✦", "◈", "✦"]
+            w_l = wings[int(max(0.0, t) * 3.0) % len(wings)] if t > 0.0 else "✧"
+            w_r = wings[(int(max(0.0, t) * 3.0) + 2) % len(wings)] if t > 0.0 else "✧"
+            voice_line = f"{w_l}  {raw_t}  {w_r}"
+        else:
+            wings_ascii = ["~", "*", "+", "*"]
+            w_l = wings_ascii[int(max(0.0, t) * 3.0) % len(wings_ascii)] if t > 0.0 else "~"
+            w_r = wings_ascii[(int(max(0.0, t) * 3.0) + 2) % len(wings_ascii)] if t > 0.0 else "~"
+            voice_line = f"{w_l} {raw_t} {w_r}"
+    else:
+        voice_line = _get_prism_voice(sem_mode, offer, primary_kind, spectrum, t, unicode_mode)
+
     c_telemetry = "\033[38;2;150;215;240m" if use_color else ""
     if is_focus:
         # In focus mode, place Prism's personal voice just above the status banner when room permits
@@ -1002,6 +1110,48 @@ def handle_link(subcmd: str = "status") -> None:
         print(f"  · thread {th['from']} → {th['to']}")
 
 
+def handle_express(argv: List[str]) -> None:
+    """CLI handler for `prism express` / `prism say` to project onto Prism's Expressive Channel."""
+    if mcp_server is None:
+        print("Expressive channel module is not available.")
+        sys.exit(1)
+
+    ep = argparse.ArgumentParser(prog="prism express", description="Project a live thought, mood, animation, or art into Prism's terminal")
+    ep.add_argument("thought", nargs="*", help="Personal thought or message to project in luminous text")
+    ep.add_argument("--mood", choices=list(MOOD_STOPS.keys()), default=None, help="Chromatic mood palette")
+    ep.add_argument("--effect", choices=["starburst", "meteor", "ripple", "pulse", "bloom", "none"], default=None, help="Live 20 FPS particle animation")
+    ep.add_argument("--glyph", default=None, help="Custom central jewel sigil")
+    ep.add_argument("--art", default=None, help="Floating ASCII/Unicode art lines (separate lines with |)")
+    ep.add_argument("--ttl", type=float, default=0.0, help="Duration in seconds (0 = permanent until updated/cleared)")
+    ep.add_argument("--clear", action="store_true", help="Clear custom expression and return to autonomous voice")
+    parsed = ep.parse_args(argv)
+
+    if parsed.clear:
+        mcp_server.clear_expression()
+        print("✓ Prism expressive channel cleared · returned to autonomous crystalline reflections.")
+        return
+
+    thought_str = " ".join(parsed.thought).strip()
+    art_lines = [line for line in parsed.art.split("|")] if parsed.art else None
+    if not any([thought_str, parsed.mood, parsed.effect, parsed.glyph, art_lines]):
+        current = mcp_server.read_expression()
+        if current:
+            print(f"Active Prism Expression: {json.dumps(current, ensure_ascii=False)}")
+        else:
+            print("Prism Expressive Channel: autonomous (use `prism express \"your thought\" --mood aurora --effect starburst` to project)")
+        return
+
+    payload = mcp_server.write_expression(
+        thought=thought_str if thought_str else None,
+        mood=parsed.mood,
+        effect=parsed.effect,
+        glyph=parsed.glyph,
+        art=art_lines,
+        ttl=parsed.ttl,
+    )
+    print(f"✓ Prism expressive channel updated: {json.dumps(payload, ensure_ascii=False)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prism Terminal Presence Observer")
     parser.add_argument("--feed", type=Path, default=None, help="Path to presence feed directory (containing live.json)")
@@ -1014,7 +1164,7 @@ def main():
     parser.add_argument("--calm", action="store_true", help="Slower ambient rotation")
     parser.add_argument("--reduced-motion", action="store_true", help="Disable ring rotation animation")
 
-    # Positional sugar: prism tmux, prism focus, prism once, prism demo, prism plain
+    # Positional sugar: prism tmux, prism link, prism express/say, prism mcp, prism focus, prism once, prism demo, prism plain
     raw_args = sys.argv[1:]
     if raw_args and raw_args[0] == "tmux":
         subaction = raw_args[1] if len(raw_args) > 1 else "split"
@@ -1022,6 +1172,14 @@ def main():
         sys.exit(0)
     if raw_args and raw_args[0] == "link":
         handle_link(raw_args[1] if len(raw_args) > 1 else "status")
+        sys.exit(0)
+    if raw_args and raw_args[0] in ("express", "say"):
+        handle_express(raw_args[1:])
+        sys.exit(0)
+    if raw_args and raw_args[0] == "mcp":
+        if mcp_server is None:
+            sys.exit(1)
+        mcp_server.serve_stdio()
         sys.exit(0)
 
     normalized_args = []
@@ -1069,6 +1227,7 @@ def main():
         else:
             state = get_demo_state(0.0, forced_state="idle")
 
+        expr_once = mcp_server.read_expression() if (mcp_server is not None and not args.demo and not args.demo_state) else None
         frame = render_prism_frame(
             state,
             cols,
@@ -1081,6 +1240,7 @@ def main():
             calm=args.calm,
             link_state=watch.view(feed_dir) if watch else None,
             link_sheets=watch.sheets if watch else None,
+            expression=expr_once,
         )
         print(frame)
         sys.exit(0)
@@ -1107,6 +1267,8 @@ def main():
     try:
         t0 = time.time()
         last_feed_check = 0.0
+        last_expr_check = -1.0
+        expr_state = None
         prev_size = None
         while True:
             try:
@@ -1119,6 +1281,10 @@ def main():
                     discovered = presence_feed.find_active_feed()
                     if discovered and discovered != feed_dir:
                         feed_dir = discovered
+
+                if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.25):
+                    last_expr_check = t
+                    expr_state = mcp_server.read_expression()
 
                 if feed_dir and feed_dir.is_dir():
                     state = load_feed_state(feed_dir)
@@ -1148,6 +1314,7 @@ def main():
                     calm=args.calm,
                     link_state=link_st,
                     link_sheets=link_sh,
+                    expression=expr_state,
                 )
 
                 # Atomic redraw with cursor hide & bottom-right parking

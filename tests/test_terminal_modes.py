@@ -138,6 +138,68 @@ class TestTerminalModes(unittest.TestCase):
         self.assertEqual(st_later["mode"], "attending")
         self.assertEqual(st_later["spectrum"], {"inspect": 1})
 
+    def test_expressive_channel_rendering(self):
+        state = {"mode": "attending", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "hover": "Prism · attending"}
+        expr = {
+            "thought": "dancing across the spectrum ;d <3",
+            "mood": "aurora",
+            "effect": "starburst",
+            "glyph": "✦",
+            "art": ["✧  PRISM MUSE  ✧"],
+        }
+        frame = terminal.render_prism_frame(state, 80, 24, t=1.2, mode="balanced", unicode_mode=True, use_color=True, expression=expr)
+        stripped = terminal._strip_colors(frame)
+        self.assertIn("dancing across the spectrum ;d <3", stripped)
+        self.assertIn("PRISM MUSE", stripped)
+        self.assertIn("⟨ ⟨ ✦ ⟩ ⟩", stripped)
+
+        # Plain ASCII safety with expressive channel active
+        frame_plain = terminal.render_prism_frame(state, 80, 24, t=1.2, mode="balanced", unicode_mode=False, use_color=False, expression=expr)
+        self.assertIn("dancing across the spectrum ;d <3", frame_plain)
+        self.assertTrue(all(ord(c) < 128 for c in frame_plain))
+
+    def test_cli_express_and_mcp_server(self):
+        import json
+        import mcp_server
+        env = dict(_ISOLATED, PRISM_EXPRESSION_FILE=str(Path(_ISOLATED["XDG_STATE_HOME"]) / "expr.json"))
+        # 1. CLI `prism express`
+        cmd = [
+            sys.executable,
+            str(SCRIPTS_DIR / "terminal.py"),
+            "express",
+            "hello from prism channel",
+            "--mood",
+            "nebula",
+            "--effect",
+            "meteor",
+            "--art",
+            "* * *",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("hello from prism channel", proc.stdout)
+
+        # Verify `--once` renders the custom expression
+        once_cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "--once", "--no-color"]
+        once_proc = subprocess.run(once_cmd, capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(once_proc.returncode, 0)
+        self.assertIn("hello from prism channel", once_proc.stdout)
+
+        # 2. MCP JSON-RPC protocol (`initialize`, `tools/list`, `tools/call`)
+        init_resp = mcp_server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        self.assertEqual(init_resp["result"]["serverInfo"]["name"], "cyclops-prism-express")
+
+        list_resp = mcp_server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        tool_names = {t["name"] for t in list_resp["result"]["tools"]}
+        self.assertIn("prism_express", tool_names)
+        self.assertIn("prism_clear_expression", tool_names)
+
+        # 3. Clear expression via CLI
+        clear_cmd = [sys.executable, str(SCRIPTS_DIR / "terminal.py"), "express", "--clear"]
+        clear_proc = subprocess.run(clear_cmd, capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(clear_proc.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

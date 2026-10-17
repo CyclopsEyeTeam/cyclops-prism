@@ -63,10 +63,32 @@ Embed the live state glyph in `tmux.conf`:
 set -g status-right "#(prism --once --plain | grep -o 'Prism.*' | head -n 1)"
 ```
 
+## Permanent Expressive Channel (MCP, CLI & Subagent Muse)
+
+Prism includes a dedicated **Expressive Channel** (`$XDG_STATE_HOME/gemini-prism/expression.json`) that lets her project personal thoughts, chromatic moods, 20 FPS particle effects, custom jewel glyphs, and floating ASCII/Unicode art into the live terminal companion at any time while working:
+
+```bash
+# Project a live thought, mood, particle animation, and floating art banner
+prism express "weaving starlight into the lattice ;d <3" --mood aurora --effect starburst --glyph "✦" --art "✧  ·  ✦  ·  ✧"
+
+# Shorthand alias
+prism say "harmonizing spectral paths..." --mood nebula --effect meteor
+
+# Clear custom expression and return to autonomous voice
+prism express --clear
+```
+
+- **MCP Tools (`mcp_config.json` -> `scripts/mcp_server.py`)**:
+  - `prism_express(thought, mood, effect, glyph, art, ttl)`
+  - `prism_clear_expression()`
+- **Subagent Muse (`invoke_subagent`)**:
+  - Prism can spawn a background `self` subagent (`Role="Prism Expressive Muse"`) during multi-step work to choreograph a living sequence of thoughts, moods, and particle animations in the terminal while the main agent works.
+
 ## Privacy & Safety
 
-Prism operates strictly on a **zero-leakage** boundary:
-- No user prompts, instructions, or chat text are ever recorded or displayed.
+Prism operates strictly on a **zero-leakage** boundary for Presence Feeds and Cyclops Link:
+- No user prompts, instructions, or chat text are ever recorded in `live.json`, `durable.json`, or Cyclops Link peer records.
 - No code snippets, file contents, diffs, or commands are exposed.
 - Tool operations are categorized strictly into 5 safe semantic kinds: `inspect`, `change`, `execute`, `service`, `other`.
 - All session correlation keys use one-way SHA-256 hashes.
+
