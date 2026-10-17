@@ -583,13 +583,66 @@ def render_prism_frame(
     # 6. Status Banner & Personal Crystalline Voice
     display_hover = hover if unicode_mode else hover.replace("·", "-")
     status_bar = f" {g_core}  {display_hover} "
-    grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, facet_col if use_color else "")
+    sx = max(1, (width - len(status_bar)) // 2)
+    if use_color:
+        # Render status bar with bright sigil, luminous "Prism", gold separator, and vivid state color
+        grid.put_str(sx, hud_y, status_bar, facet_col)
+        grid.put(sx + 1, hud_y, g_core, C_WHITE if sem_mode != "approval" else C_GOLD)
+        prism_idx = status_bar.find("Prism")
+        if prism_idx >= 0:
+            grid.put_str(sx + prism_idx, hud_y, "Prism", C_WHITE if sem_mode not in ("ended", "halted") else C_DIM)
+        for idx_ch, ch_s in enumerate(status_bar):
+            if ch_s in ("·", "-") and idx_ch > 2:
+                grid.put(sx + idx_ch, hud_y, ch_s, C_GOLD if sem_mode not in ("ended", "halted") else C_DIM)
+    else:
+        grid.put_str(sx, hud_y, status_bar, "")
+
+    def _put_luminous_voice(y_row: int, text: str) -> None:
+        x0 = max(1, (width - len(text)) // 2)
+        if not use_color:
+            grid.put_str(x0, y_row, text, "")
+            return
+        rgb_orchid = (196, 140, 255)
+        rgb_silver = (176, 190, 210)
+        if sem_mode in ("ended", "halted"):
+            v_stops = [rgb_silver, (140, 155, 175), rgb_silver]
+        elif sem_mode == "approval":
+            v_stops = [RGB_RED, RGB_GOLD, RGB_WHITE, RGB_GOLD]
+        elif offer or sem_mode == "resolved":
+            v_stops = [RGB_WHITE, RGB_GOLD, RGB_CYAN, RGB_TEAL, RGB_WHITE]
+        elif sem_mode == "branching":
+            v_stops = [rgb_orchid, RGB_CYAN, RGB_WHITE, RGB_GOLD]
+        elif sem_mode == "refracting":
+            if primary_kind == "change":
+                v_stops = [RGB_GOLD, RGB_WHITE, RGB_AMBER, RGB_CYAN]
+            elif primary_kind == "execute":
+                v_stops = [rgb_orchid, RGB_WHITE, RGB_CYAN, rgb_orchid]
+            elif primary_kind == "service":
+                v_stops = [RGB_TEAL, RGB_WHITE, RGB_CYAN, RGB_GOLD]
+            else:
+                v_stops = [RGB_CYAN, RGB_TEAL, RGB_WHITE, RGB_GOLD]
+        elif sem_mode == "attending":
+            v_stops = [RGB_GOLD, RGB_WHITE, RGB_CYAN, RGB_TEAL]
+        else:
+            v_stops = [RGB_CYAN, RGB_TEAL, RGB_WHITE, rgb_orchid, RGB_CYAN]
+
+        n_chars = max(1, len(text))
+        for i_ch, ch_v in enumerate(text):
+            if ch_v in ("✧", "✦", "~"):
+                col_v = C_GOLD if sem_mode not in ("ended", "halted") else "\033[38;2;176;190;210m"
+            elif ch_v == "·":
+                col_v = C_WHITE
+            else:
+                pos_v = ((i_ch / n_chars) - (t * 0.22 if not reduced_motion else 0.0)) % 1.0
+                col_v = _sample_gradient(v_stops, pos_v)
+            grid.put(x0 + i_ch, y_row, ch_v, col_v)
 
     voice_line = _get_prism_voice(sem_mode, offer, primary_kind, spectrum, t, unicode_mode)
+    c_telemetry = "\033[38;2;150;215;240m" if use_color else ""
     if is_focus:
         # In focus mode, place Prism's personal voice just above the status banner when room permits
         if height >= 20 and not (link_state and link_state.get("peers")) and len(voice_line) < width - 2:
-            grid.put_str(max(1, (width - len(voice_line)) // 2), hud_y - 1, voice_line, C_DIM if use_color else "")
+            _put_luminous_voice(hud_y - 1, voice_line)
         sub_info = f"Calls: {active_calls}  Branches: {active_branches}  Offer: {offer or 'none'}  Comp: {mode}"
         if link_state is not None and link_view is not None:
             sub_info += "  " + link_view.status(link_state)
@@ -598,12 +651,12 @@ def render_prism_frame(
             candidate = sub_info + "  Spectrum: " + " ".join(spec_parts)
             if len(candidate) <= width - 2:
                 sub_info = candidate
-        grid.put_str(max(1, (width - len(sub_info)) // 2), hud_y + 1, sub_info, C_DIM if use_color else "")
+        grid.put_str(max(1, (width - len(sub_info)) // 2), hud_y + 1, sub_info, c_telemetry)
     elif height >= 12 and not (t == 0.0 and reduced_motion and height <= 10):
         # In balanced mode, show Prism's living inner reflection on the whisper row below the banner
         if len(voice_line) > width - 2:
             voice_line = voice_line[: max(0, width - 2)]
-        grid.put_str(max(1, (width - len(voice_line)) // 2), hud_y + 1, voice_line, C_DIM if use_color else "")
+        _put_luminous_voice(hud_y + 1, voice_line)
 
     return grid.render()
 
