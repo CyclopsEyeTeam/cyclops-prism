@@ -1040,31 +1040,49 @@ def render_prism_frame(
         # §2 Only show the tools when there's at least one painting and room to spare, so they never shrink the painting
         if width >= 34 and height >= 20:
             if unicode_mode:
-                mode_lbl = "🎨 Work" if paint_mode == "work" else "🎨 Live"
-                tool_defs = [
-                    (mode_lbl, "tool_paint_mode"),
-                    ("▶ story", "tool_story"),
-                    ("⇪ convert", "tool_convert"),
-                    ("◎ roll", "tool_roll"),
-                ]
-                if width >= 48:
+                if width >= 44:
+                    tool_defs = [
+                        ("✦ Live", "tool_mode_live"),
+                        ("◈ Work", "tool_mode_work"),
+                        ("▶ story", "tool_story"),
+                        ("⇪ convert", "tool_convert"),
+                        ("◎ roll", "tool_roll"),
+                    ]
+                else:
+                    mode_lbl = "◈ Work" if paint_mode == "work" else "✦ Live"
+                    tool_defs = [
+                        (mode_lbl, "tool_paint_mode"),
+                        ("▶ story", "tool_story"),
+                        ("⇪ convert", "tool_convert"),
+                        ("◎ roll", "tool_roll"),
+                    ]
+                if width >= 54:
                     tool_defs.append(("💬 chat", "tool_chat"))
-                if width >= 60:
+                if width >= 64:
                     tool_defs.append(("⧉ copy", "tool_copy"))
             else:
-                mode_lbl = "[m] Work" if paint_mode == "work" else "[m] Live"
-                tool_defs = [
-                    (mode_lbl, "tool_paint_mode"),
-                    ("> story", "tool_story"),
-                    ("^ convert", "tool_convert"),
-                    ("o roll", "tool_roll"),
-                ]
-                if width >= 48:
+                if width >= 44:
+                    tool_defs = [
+                        ("* Live", "tool_mode_live"),
+                        ("# Work", "tool_mode_work"),
+                        ("> story", "tool_story"),
+                        ("^ convert", "tool_convert"),
+                        ("o roll", "tool_roll"),
+                    ]
+                else:
+                    mode_lbl = "# Work" if paint_mode == "work" else "* Live"
+                    tool_defs = [
+                        (mode_lbl, "tool_paint_mode"),
+                        ("> story", "tool_story"),
+                        ("^ convert", "tool_convert"),
+                        ("o roll", "tool_roll"),
+                    ]
+                if width >= 54:
                     tool_defs.append(("[?] chat", "tool_chat"))
-                if width >= 60:
+                if width >= 64:
                     tool_defs.append(("[c] copy", "tool_copy"))
 
-            sep = "   " if width >= 64 else "  "
+            sep = "   " if width >= 70 else "  "
             sep_w = len(sep)
             total_tools_w = sum(sum(_char_cells(c) for c in lbl) for lbl, _ in tool_defs) + sep_w * (len(tool_defs) - 1)
             tx0 = max(1, width - total_tools_w - 1)
@@ -1072,7 +1090,9 @@ def render_prism_frame(
             for lbl, act in tool_defs:
                 lbl_w = sum(_char_cells(c) for c in lbl)
                 is_active_tool = (
-                    (act == "tool_paint_mode" and paint_mode == "work")
+                    (act == "tool_mode_live" and paint_mode == "live")
+                    or (act == "tool_mode_work" and paint_mode == "work")
+                    or (act == "tool_paint_mode" and paint_mode == "work")
                     or (act == "tool_story" and story_st and story_st.get("active"))
                     or (act == "tool_convert" and menu_step in (1, 2))
                     or (act == "tool_chat" and chat_active)
@@ -2336,9 +2356,14 @@ def main():
         def _dispatch_action(action: str) -> None:
             nonlocal story_page_started, story_paused_elapsed, expr_state, default_painting, last_auto_paint_wall
             st = ui_state.get("story")
-            if action == "tool_paint_mode":
+            if action in ("tool_paint_mode", "tool_mode_live", "tool_mode_work"):
                 cur_pm = str(ui_state.get("paint_mode") or "live")
-                new_pm = "work" if cur_pm == "live" else "live"
+                if action == "tool_mode_live":
+                    new_pm = "live"
+                elif action == "tool_mode_work":
+                    new_pm = "work"
+                else:
+                    new_pm = "work" if cur_pm == "live" else "live"
                 ui_state["paint_mode"] = new_pm
                 if painter is not None and mcp_server is not None:
                     now_t = time.time()
