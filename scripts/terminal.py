@@ -114,22 +114,22 @@ KIND_RGB_MAP = {
 
 
 def _sample_gradient(stops: List[tuple], pos: float) -> str:
-    """Sample a cyclic gradient of [(r,g,b), ...] at pos in [0.0, 1.0)."""
+    """Sample a cyclic gradient of [(r,g,b), ...] at pos in [0.0, 1.0), quantized to 16 bands so adjacent cells share ANSI strings."""
     n = len(stops)
     if n == 0:
         return C_CYAN
     if n == 1:
         r, g, b = stops[0]
         return f"\033[38;2;{r};{g};{b}m"
-    pos = pos % 1.0
+    pos = int((pos % 1.0) * 16.0) / 16.0
     scaled = pos * n
     idx = int(scaled)
     f = scaled - idx
     c1 = stops[idx % n]
     c2 = stops[(idx + 1) % n]
-    r = int(c1[0] + (c2[0] - c1[0]) * f)
-    g = int(c1[1] + (c2[1] - c1[1]) * f)
-    b = int(c1[2] + (c2[2] - c1[2]) * f)
+    r = int(round((c1[0] + (c2[0] - c1[0]) * f) / 17.0)) * 17
+    g = int(round((c1[1] + (c2[1] - c1[1]) * f) / 17.0)) * 17
+    b = int(round((c1[2] + (c2[2] - c1[2]) * f) / 17.0)) * 17
     return f"\033[38;2;{r};{g};{b}m"
 
 
@@ -933,13 +933,14 @@ def render_prism_frame(
             v_stops = [RGB_CYAN, RGB_TEAL, RGB_WHITE, rgb_orchid, RGB_CYAN]
 
         n_chars = max(1, len(text))
+        t_voice = int(max(0.0, t) * 2.0) / 2.0
         for i_ch, ch_v in enumerate(text):
             if ch_v in ("✧", "✦", "~"):
                 col_v = C_GOLD if sem_mode not in ("ended", "halted") else "\033[38;2;176;190;210m"
             elif ch_v == "·":
                 col_v = C_WHITE
             else:
-                pos_v = ((i_ch / n_chars) - (t * 0.22 if not reduced_motion else 0.0)) % 1.0
+                pos_v = ((i_ch / n_chars) - (t_voice * 0.22 if not reduced_motion else 0.0)) % 1.0
                 col_v = _sample_gradient(v_stops, pos_v)
             grid.put(x0 + i_ch, y_row, ch_v, col_v)
 
@@ -1378,6 +1379,9 @@ def _draw_side_chat_panel(
 
 
 
+_FEED_JSON_CACHE: Dict[Tuple[str, int, int], dict] = {}
+
+
 def load_feed_state(feed_dir: Path, now: Optional[float] = None) -> dict:
     """Read latest state from live.json or fallback to durable.json."""
     if not feed_dir or not feed_dir.is_dir():
@@ -1389,8 +1393,16 @@ def load_feed_state(feed_dir: Path, now: Optional[float] = None) -> dict:
         p = feed_dir / filename
         if p.is_file():
             try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                events = data.get("events", [])
+                st = p.stat()
+                f_key = (str(p), st.st_mtime_ns, st.st_size)
+                data = _FEED_JSON_CACHE.get(f_key)
+                if data is None:
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        if len(_FEED_JSON_CACHE) >= 16:
+                            _FEED_JSON_CACHE.clear()
+                        _FEED_JSON_CACHE[f_key] = data
+                events = data.get("events", []) if isinstance(data, dict) else []
                 if isinstance(events, list) and events:
                     active_calls = []
                     recent_impulses = []
@@ -1866,6 +1878,8 @@ def handle_convert(argv: List[str]) -> None:
     cp.add_argument("--way", choices=["truest", "layered", "faithful", "refined", "interpretive"], default=None)
     cp.add_argument("--size", choices=["hd", "4k"], default="hd")
     cp.add_argument("--out", type=Path, default=None)
+    cp.add_argument("--file", type=Path, default=None, help="Specific painting JSON file to convert")
+    cp.add_argument("--progress-json", action="store_true", help="Emit JSON progress lines for parent UI pipe")
     parsed = cp.parse_args(argv)
 
     what = "this"
@@ -1887,13 +1901,23 @@ def handle_convert(argv: List[str]) -> None:
             size = tl
 
     if what == "roll":
-        handle_roll([size if size == "hd" else "720p"])
+        roll_args = [size if size == "hd" else "720p"]
+        if parsed.progress_json:
+            roll_args.append("--progress-json")
+        handle_roll(roll_args)
         return
 
     out_dir = parsed.out or (Path.cwd() / "prism-paintings")
     session_paintings = painter.load_session_paintings(Path.cwd())
-    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
-    cur_p = cur_expr.get("painting") or (session_paintings[-1] if session_paintings else painter.choose_curated_painting(0))
+    cur_p = None
+    if parsed.file and parsed.file.is_file():
+        try:
+            cur_p = painter.parse_painting(parsed.file.read_text(encoding="utf-8"))
+        except Exception:
+            cur_p = None
+    if not cur_p:
+        cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
+        cur_p = cur_expr.get("painting") or (session_paintings[-1] if session_paintings else painter.choose_curated_painting(0))
 
     last_p_time = [0.0]
 
@@ -1901,11 +1925,15 @@ def handle_convert(argv: List[str]) -> None:
         now = time.monotonic()
         if frac >= 1.0 or (now - last_p_time[0] >= 0.18):
             last_p_time[0] = now
-            if mcp_server:
-                mcp_server.update_job_progress(label, frac, done=(frac >= 1.0))
-            bar = painter.render_progress_bar(frac, bar_cells=12, unicode_mode=True)
-            sys.stdout.write(f"\r  {label}  {bar}   ")
-            sys.stdout.flush()
+            if parsed.progress_json:
+                sys.stdout.write(json.dumps({"label": label, "fraction": frac}, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+            else:
+                if mcp_server:
+                    mcp_server.update_job_progress(label, frac, done=(frac >= 1.0))
+                bar = painter.render_progress_bar(frac, bar_cells=12, unicode_mode=True)
+                sys.stdout.write(f"\r  {label}  {bar}   ")
+                sys.stdout.flush()
 
     results = []
     if what == "every":
@@ -1928,9 +1956,10 @@ def handle_convert(argv: List[str]) -> None:
         res = painter.convert_painting(cur_p, gallery_dir=out_dir, way=way, size=size, on_progress=_prog)
         results.append(res)
 
-    if mcp_server:
-        mcp_server.update_job_progress("", 1.0, done=True)
-    print(f"\n✓ Converted {len(results)} {'painting' if len(results) == 1 else 'paintings'} to {out_dir} (SVG + PNG + index.html)")
+    if not parsed.progress_json:
+        if mcp_server:
+            mcp_server.update_job_progress("", 1.0, done=True)
+        print(f"\n✓ Converted {len(results)} {'painting' if len(results) == 1 else 'paintings'} to {out_dir} (SVG + PNG + index.html)")
 
 
 def handle_roll(argv: List[str]) -> None:
@@ -1942,6 +1971,7 @@ def handle_roll(argv: List[str]) -> None:
     rp = argparse.ArgumentParser(prog="prism roll", description="Build the session MP4 video & procedural music roll")
     rp.add_argument("mode", nargs="?", default="720p", help="Resolution mode: 720p (default), hd (1080p), or short (1080x1920 upright)")
     rp.add_argument("--out", type=Path, default=None)
+    rp.add_argument("--progress-json", action="store_true", help="Emit JSON progress lines for parent UI pipe")
     parsed = rp.parse_args(argv)
 
     mode_str = str(parsed.mode or "720p").lower().strip()
@@ -1960,18 +1990,23 @@ def handle_roll(argv: List[str]) -> None:
         now = time.monotonic()
         if frac >= 1.0 or (now - last_p_time[0] >= 0.18):
             last_p_time[0] = now
-            if mcp_server:
-                mcp_server.update_job_progress(label, frac, done=(frac >= 1.0))
-            bar = painter.render_progress_bar(frac, bar_cells=12, unicode_mode=True)
-            sys.stdout.write(f"\r  {label}  {bar}   ")
-            sys.stdout.flush()
+            if parsed.progress_json:
+                sys.stdout.write(json.dumps({"label": label, "fraction": frac}, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+            else:
+                if mcp_server:
+                    mcp_server.update_job_progress(label, frac, done=(frac >= 1.0))
+                bar = painter.render_progress_bar(frac, bar_cells=12, unicode_mode=True)
+                sys.stdout.write(f"\r  {label}  {bar}   ")
+                sys.stdout.flush()
 
     res = roll.build_session_roll(paintings, out_dir, mode=mode_str, on_progress=_prog)
-    if mcp_server:
-        mcp_server.update_job_progress("", 1.0, done=True)
-    print(f"\n◎ Session roll created: {res['path']} ({res['paintings']} paintings · {res['duration']}s · music in {res['key']})")
-    if res.get("warning"):
-        print(f"  ! {res['warning']}")
+    if not parsed.progress_json:
+        if mcp_server:
+            mcp_server.update_job_progress("", 1.0, done=True)
+        print(f"\n◎ Session roll created: {res['path']} ({res['paintings']} paintings · {res['duration']}s · music in {res['key']})")
+        if res.get("warning"):
+            print(f"  ! {res['warning']}")
 
 
 def handle_chat(argv: List[str]) -> None:
@@ -2311,37 +2346,54 @@ def main():
                 ui_state["job"] = {"active": True, "label": "preparing lattice…", "fraction": 0.02}
 
             held_p = _active_painting_for_convert()
-            all_p = painter.load_session_paintings(Path.cwd()) or [held_p]
+            held_file = held_p.get("_file") if isinstance(held_p, dict) else None
+            if not held_file and isinstance(held_p, dict):
+                try:
+                    saved_f = painter.save_painting_json(held_p)
+                    if saved_f:
+                        held_file = str(saved_f)
+                except Exception:
+                    held_file = None
 
             def _worker() -> None:
-                last_upd = [0.0]
-
-                def _on_prog(lbl: str, frac: float) -> None:
-                    now_m = time.monotonic()
-                    if frac >= 1.0 or (now_m - last_upd[0] >= 0.18):
-                        last_upd[0] = now_m
-                        with job_lock:
-                            ui_state["job"] = {"active": True, "label": lbl, "fraction": frac}
-
                 try:
-                    out_dir = Path.cwd() / "prism-paintings"
-                    if target_what == "roll" and roll is not None:
-                        roll.build_session_roll(all_p, out_dir, mode="720p", on_progress=_on_prog)
-                    elif target_what == "every":
-                        ways = ["truest", "layered", "faithful", "refined", "interpretive"]
-                        n_ways = len(ways)
-                        for idx_w, w_name in enumerate(ways):
-                            _on_prog(f"laying down “{held_p.get('title', '')[:18]}” · {idx_w + 1}/{n_ways}", idx_w / float(n_ways))
-                            painter.convert_painting(held_p, gallery_dir=out_dir, way=w_name)
-                        _on_prog(f"crystallized {n_ways} ways · “{held_p.get('title', '')[:18]}”", 1.0)
-                    elif target_what == "all":
-                        n_all = len(all_p)
-                        for idx_p, p_item in enumerate(all_p):
-                            _on_prog(f"laying down “{p_item.get('title', '')[:18]}” · {idx_p + 1}/{n_all}", idx_p / float(n_all))
-                            painter.convert_painting(p_item, gallery_dir=out_dir, way=way)
-                        _on_prog(f"crystallized {n_all} paintings · {way}", 1.0)
+                    if target_what == "roll":
+                        cmd = [sys.executable, str(self_path), "roll", "720p", "--progress-json"]
                     else:
-                        painter.convert_painting(held_p, gallery_dir=out_dir, way=way, on_progress=_on_prog)
+                        cmd = [sys.executable, str(self_path), "convert", target_what, "--way", way, "--progress-json"]
+                        if held_file and target_what in ("this", "every"):
+                            cmd.extend(["--file", str(held_file)])
+
+                    def _lower_priority() -> None:
+                        if hasattr(os, "nice"):
+                            try:
+                                os.nice(10)
+                            except OSError:
+                                pass
+
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        preexec_fn=_lower_priority if os.name == "posix" else None,
+                    )
+                    if proc.stdout is not None:
+                        for raw_ln in proc.stdout:
+                            ln_s = raw_ln.strip()
+                            if not ln_s or not ln_s.startswith("{"):
+                                continue
+                            try:
+                                prog_obj = json.loads(ln_s)
+                                with job_lock:
+                                    ui_state["job"] = {
+                                        "active": True,
+                                        "label": str(prog_obj.get("label") or "refracting"),
+                                        "fraction": float(prog_obj.get("fraction") or 0.0),
+                                    }
+                            except Exception:
+                                pass
+                    proc.wait()
                 except Exception as exc:
                     with job_lock:
                         ui_state["job"] = {"active": True, "label": f"error: {str(exc)[:28]}", "fraction": 1.0}
@@ -2589,6 +2641,7 @@ def main():
             elif "y" in buf:
                 _dispatch_action("tool_copy")
 
+        last_paint_dir_check = -2.0
         while True:
             try:
                 now_wall = time.time()
@@ -2642,7 +2695,7 @@ def main():
                                     int(load_feed_state(feed_dir).get("lastResolveSeq") or 0),
                                 )
 
-                if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.20):
+                if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.25):
                     last_expr_check = t
                     expr_state = mcp_server.read_expression()
                     if isinstance(expr_state, dict):
@@ -2651,7 +2704,8 @@ def main():
                         raw_pm_expr = str(expr_state.get("paintMode") or "").lower().strip()
                         if raw_pm_expr in ("live", "work", "relative", "story-mode"):
                             ui_state["paint_mode"] = "work" if raw_pm_expr in ("work", "relative", "story-mode") else "live"
-                    if painter is not None:
+                    if painter is not None and (t - last_paint_dir_check >= 1.5):
+                        last_paint_dir_check = t
                         latest_shared = painter.load_session_paintings(Path.cwd())
                         if latest_shared:
                             ui_state["session_count"] = len(latest_shared)
@@ -2728,11 +2782,12 @@ def main():
                         pass
 
                 new_hitboxes: List[dict] = []
+                t_render = int(t * 10.0) / 10.0
                 frame = render_prism_frame(
                     state,
                     cols,
                     rows,
-                    t=t,
+                    t=t_render,
                     mode=args.mode,
                     unicode_mode=unicode_mode,
                     use_color=use_color,
@@ -2747,7 +2802,7 @@ def main():
                 current_hitboxes = new_hitboxes
 
                 # Differential row redraw: only transmit rows that actually changed since the last frame
-                # so static painting/chat rows are never touched or flickered during 20 FPS ring animation
+                # so static painting/chat rows are never touched or flickered
                 size_changed = (cols, rows) != prev_size
                 prev_size = (cols, rows)
                 row_Lines = frame.split("\n")[:rows]
@@ -2765,7 +2820,7 @@ def main():
 
                 if positioned or clear_seq:
                     out_bytes = (
-                        f"\033[?2026h\033[?7l\033[?25l\033[?12l{clear_seq}{positioned}\033[1;1H\033[?25l\033[?2026l"
+                        f"\033[?2026h\033[?7l\033[?25l\033[?12l{clear_seq}{positioned}\033[{rows};{cols}H\033[?25l\033[?12l\033[?2026l"
                     ).encode("utf-8")
                     try:
                         fd_out = sys.stdout.fileno()

@@ -39,8 +39,10 @@ GROUND_DARK = (0.078, 0.071, 0.094)  # #141218 terminal dark ground
 
 RGBFloat = Tuple[float, float, float]
 
-# Cache for terminal pixel buffers so held paintings redraw in 0 ms
+# Cache for terminal pixel buffers, formatted cell grids, and parsed disk JSON files
 _RASTER_CACHE: Dict[Tuple, List[List[float]]] = {}
+_CELL_GRID_CACHE: Dict[Tuple, List[List[Tuple[str, str]]]] = {}
+_FILE_PAINTING_CACHE: Dict[Tuple[str, int, int], Optional[dict]] = {}
 _CACHE_MAX = 24
 
 
@@ -958,8 +960,18 @@ def load_session_paintings(
             if jf.is_symlink():
                 continue
             try:
-                raw_text = jf.read_text(encoding="utf-8")
-                parsed = parse_painting(raw_text, default_by=default_by)
+                st = jf.stat()
+                f_key = (str(jf), st.st_mtime_ns, st.st_size)
+                if f_key in _FILE_PAINTING_CACHE:
+                    parsed = _FILE_PAINTING_CACHE[f_key]
+                else:
+                    raw_text = jf.read_text(encoding="utf-8")
+                    parsed = parse_painting(raw_text, default_by=default_by)
+                    if parsed:
+                        parsed["_file"] = str(jf)
+                    if len(_FILE_PAINTING_CACHE) >= 512:
+                        _FILE_PAINTING_CACHE.clear()
+                    _FILE_PAINTING_CACHE[f_key] = parsed
                 if not parsed:
                     continue
                 # Deduplicate identical (by, title, round(at, 1))
@@ -967,7 +979,6 @@ def load_session_paintings(
                 if dedup_key in seen_keys:
                     continue
                 seen_keys.add(dedup_key)
-                parsed["_file"] = str(jf)
                 all_valid.append(parsed)
             except Exception:
                 continue
@@ -995,6 +1006,13 @@ def save_painting_json(painting_raw: dict, gallery_dir: Optional[Path] = None) -
     # Check if this exact painting (title + timestamp within 1s) is already written
     for jf in sorted(gallery_dir.glob("*.json")):
         try:
+            st = jf.stat()
+            f_key = (str(jf), st.st_mtime_ns, st.st_size)
+            cached_p = _FILE_PAINTING_CACHE.get(f_key)
+            if cached_p is not None:
+                if cached_p.get("title") == clean["title"] and abs(float(cached_p.get("at", 0.0)) - float(clean["at"])) < 1.0:
+                    return jf
+                continue
             ex = json.loads(jf.read_text(encoding="utf-8"))
             if ex.get("title") == clean["title"] and abs(float(ex.get("at", 0.0)) - float(clean["at"])) < 1.0:
                 return jf
@@ -1126,70 +1144,92 @@ def draw_painting_block(
     W = canvas_cols
     H = canvas_rows * 2
     rev_quant = round(reveal, 2)
-    cache_key = (painting["title"], round(float(painting["at"]), 2), len(painting["marks"]), W, H, rev_quant)
-    px = _RASTER_CACHE.get(cache_key)
-    if px is None:
-        scene = painting_scene(painting, W, H, reveal=rev_quant)
-        px = rasterize_scene(scene, W, H, yield_burst=False)
-        if len(_RASTER_CACHE) >= _CACHE_MAX:
-            _RASTER_CACHE.clear()
-        _RASTER_CACHE[cache_key] = px
+    cell_cache_key = (
+        painting["title"],
+        round(float(painting["at"]), 2),
+        len(painting["marks"]),
+        W,
+        canvas_rows,
+        rev_quant,
+        unicode_mode,
+        use_color,
+        TRUEST_LEVELS,
+    )
+    cell_rows = _CELL_GRID_CACHE.get(cell_cache_key)
+    if cell_rows is None:
+        cache_key = (painting["title"], round(float(painting["at"]), 2), len(painting["marks"]), W, H, rev_quant)
+        px = _RASTER_CACHE.get(cache_key)
+        if px is None:
+            scene = painting_scene(painting, W, H, reveal=rev_quant)
+            px = rasterize_scene(scene, W, H, yield_burst=False)
+            if len(_RASTER_CACHE) >= _CACHE_MAX:
+                _RASTER_CACHE.clear()
+            _RASTER_CACHE[cache_key] = px
 
-    def _shade_pixel(idx: int) -> Optional[Tuple[int, int, int]]:
-        cell = px[idx]
-        a = min(1.0, cell[3])
-        if a < 0.04:
-            return None
-        # §6 Colour depth: spill excess light > 1.0 toward white up to 2.5x full
-        tr, tg, tb = tonemap_light(cell[0], cell[1], cell[2])
-        rr = min(1.0, tr + GROUND_DARK[0] * (1.0 - a))
-        gg = min(1.0, tg + GROUND_DARK[1] * (1.0 - a))
-        bb = min(1.0, tb + GROUND_DARK[2] * (1.0 - a))
-        return (
-            posterize_val(int(round(rr * 255)), TRUEST_LEVELS),
-            posterize_val(int(round(gg * 255)), TRUEST_LEVELS),
-            posterize_val(int(round(bb * 255)), TRUEST_LEVELS),
-        )
+        def _shade_pixel(idx: int) -> Optional[Tuple[int, int, int]]:
+            cell = px[idx]
+            a = min(1.0, cell[3])
+            if a < 0.04:
+                return None
+            # §6 Colour depth: spill excess light > 1.0 toward white up to 2.5x full
+            tr, tg, tb = tonemap_light(cell[0], cell[1], cell[2])
+            rr = min(1.0, tr + GROUND_DARK[0] * (1.0 - a))
+            gg = min(1.0, tg + GROUND_DARK[1] * (1.0 - a))
+            bb = min(1.0, tb + GROUND_DARK[2] * (1.0 - a))
+            return (
+                posterize_val(int(round(rr * 255)), TRUEST_LEVELS),
+                posterize_val(int(round(gg * 255)), TRUEST_LEVELS),
+                posterize_val(int(round(bb * 255)), TRUEST_LEVELS),
+            )
 
-    bg_r = posterize_val(20, TRUEST_LEVELS)
-    bg_g = posterize_val(18, TRUEST_LEVELS)
-    bg_b = posterize_val(24, TRUEST_LEVELS)
-    bg_hex = f"\033[48;2;{bg_r};{bg_g};{bg_b}m"
-    for cy in range(canvas_rows):
+        bg_r = posterize_val(20, TRUEST_LEVELS)
+        bg_g = posterize_val(18, TRUEST_LEVELS)
+        bg_b = posterize_val(24, TRUEST_LEVELS)
+        bg_hex = f"\033[48;2;{bg_r};{bg_g};{bg_b}m"
+        cell_rows = []
+        for cy in range(canvas_rows):
+            row_cells: List[Tuple[str, str]] = []
+            for cx in range(canvas_cols):
+                top_rgb = _shade_pixel((cy * 2) * W + cx)
+                bot_rgb = _shade_pixel((cy * 2 + 1) * W + cx)
+                if use_color and unicode_mode:
+                    if top_rgb is None and bot_rgb is None:
+                        row_cells.append((" ", bg_hex))
+                    elif bot_rgb is None:
+                        r, g, b = top_rgb
+                        row_cells.append(("▀", f"\033[38;2;{r};{g};{b}m{bg_hex}"))
+                    elif top_rgb is None:
+                        r, g, b = bot_rgb
+                        row_cells.append(("▄", f"\033[38;2;{r};{g};{b}m{bg_hex}"))
+                    else:
+                        r1, g1, b1 = top_rgb
+                        r2, g2, b2 = bot_rgb
+                        row_cells.append(("▀", f"\033[38;2;{r1};{g1};{b1}m\033[48;2;{r2};{g2};{b2}m"))
+                else:
+                    rgb = top_rgb or bot_rgb
+                    if rgb is None:
+                        ch = " "
+                    else:
+                        lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+                        if lum > 175:
+                            ch = "✦" if unicode_mode else "*"
+                        elif lum > 110:
+                            ch = "✧" if unicode_mode else "+"
+                        else:
+                            ch = "·" if unicode_mode else "."
+                    col = f"\033[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m" if (use_color and rgb) else ""
+                    row_cells.append((ch, col))
+            cell_rows.append(row_cells)
+        if len(_CELL_GRID_CACHE) >= _CACHE_MAX:
+            _CELL_GRID_CACHE.clear()
+        _CELL_GRID_CACHE[cell_cache_key] = cell_rows
+
+    for cy, row_cells in enumerate(cell_rows):
         y_screen = top_y + cy
         if y_screen >= bot_y:
             break
-        for cx in range(canvas_cols):
-            x_screen = x0 + cx
-            top_rgb = _shade_pixel((cy * 2) * W + cx)
-            bot_rgb = _shade_pixel((cy * 2 + 1) * W + cx)
-            if use_color and unicode_mode:
-                if top_rgb is None and bot_rgb is None:
-                    grid.put(x_screen, y_screen, " ", bg_hex)
-                elif bot_rgb is None:
-                    r, g, b = top_rgb
-                    grid.put(x_screen, y_screen, "▀", f"\033[38;2;{r};{g};{b}m{bg_hex}")
-                elif top_rgb is None:
-                    r, g, b = bot_rgb
-                    grid.put(x_screen, y_screen, "▄", f"\033[38;2;{r};{g};{b}m{bg_hex}")
-                else:
-                    r1, g1, b1 = top_rgb
-                    r2, g2, b2 = bot_rgb
-                    grid.put(x_screen, y_screen, "▀", f"\033[38;2;{r1};{g1};{b1}m\033[48;2;{r2};{g2};{b2}m")
-            else:
-                rgb = top_rgb or bot_rgb
-                if rgb is None:
-                    ch = " "
-                else:
-                    lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
-                    if lum > 175:
-                        ch = "✦" if unicode_mode else "*"
-                    elif lum > 110:
-                        ch = "✧" if unicode_mode else "+"
-                    else:
-                        ch = "·" if unicode_mode else "."
-                col = f"\033[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m" if (use_color and rgb) else ""
-                grid.put(x_screen, y_screen, ch, col)
+        for cx, (ch_cell, col_cell) in enumerate(row_cells):
+            grid.put(x0 + cx, y_screen, ch_cell, col_cell)
 
     # Caption & metadata directly below the painting
     cap_y = top_y + canvas_rows

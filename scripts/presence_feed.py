@@ -202,28 +202,30 @@ def _safe_mkdir(path: Path) -> None:
 
 
 def _atomic_json(path: Path, value: Any) -> None:
-    """Write JSON atomically via mkstemp + fsync + os.replace + parent directory fsync."""
+    """Write JSON atomically via mkstemp + os.replace."""
     path = Path(path)
     if path.is_symlink():
         raise OSError("presence target is a symbolic link")
     _safe_mkdir(path.parent)
 
+    strict_sync = os.environ.get("PRISM_STRICT_FSYNC") == "1"
     fd, temporary = tempfile.mkstemp(prefix=".prism-", suffix=".tmp", dir=path.parent)
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as output:
             json.dump(value, output, separators=(",", ":"), ensure_ascii=True)
             output.flush()
-            os.fsync(output.fileno())
+            if strict_sync:
+                os.fsync(output.fileno())
         os.replace(temporary, path)
 
-        # Fsync parent directory to commit rename to disk
-        dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        dir_fd = os.open(path.parent, dir_flags)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+        if strict_sync:
+            dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            dir_fd = os.open(path.parent, dir_flags)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     finally:
         try:
             os.unlink(temporary)
@@ -256,9 +258,17 @@ def producer_alive(identity: Optional[Dict[str, Any]]) -> bool:
     return current is not None and current == identity
 
 
+_HOST_IDENTITY_CACHE: Dict[int, Optional[Dict[str, int]]] = {}
+
+
 def find_host_identity() -> Optional[Dict[str, int]]:
     """Identify the nearest ancestor host process (e.g. agy, antigravity) or session leader, rejecting transient wrappers."""
-    pid = os.getppid()
+    ppid = os.getppid()
+    if ppid in _HOST_IDENTITY_CACHE:
+        cached = _HOST_IDENTITY_CACHE[ppid]
+        if cached and producer_alive(cached):
+            return cached
+    pid = ppid
     candidates = []
     for _ in range(16):
         try:
@@ -274,6 +284,7 @@ def find_host_identity() -> Optional[Dict[str, int]]:
 
             if comm not in {"sh", "dash", "bash", "python", "python3"}:
                 if any(k in comm or k.encode() in cmd for k in ["agy", "antigravity", "cortex"]):
+                    _HOST_IDENTITY_CACHE[ppid] = ident
                     return ident
 
             parent = int(fields[1])
@@ -286,9 +297,12 @@ def find_host_identity() -> Optional[Dict[str, int]]:
     # If no explicit host signature was found, skip transient wrapper shells
     for comm, cmd, ident in candidates:
         if comm not in {"sh", "dash", "bash", "python", "python3"}:
+            _HOST_IDENTITY_CACHE[ppid] = ident
             return ident
 
-    return candidates[-1][2] if candidates else process_identity(os.getppid())
+    res_ident = candidates[-1][2] if candidates else process_identity(ppid)
+    _HOST_IDENTITY_CACHE[ppid] = res_ident
+    return res_ident
 
 
 def new_record(session_id: str, *, run: Optional[str] = None, started_at: Optional[float] = None, host_identity: Optional[Dict[str, int]] = None, conversation_id: Optional[str] = None) -> Dict[str, Any]:

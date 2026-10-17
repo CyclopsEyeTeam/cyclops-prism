@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.dont_write_bytecode = True
 
@@ -61,7 +61,6 @@ def _write_single_expr_file(dest: Path, payload: Dict[str, Any]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
             f.flush()
-            os.fsync(f.fileno())
         os.replace(tmp_path, dest)
     finally:
         try:
@@ -249,6 +248,9 @@ def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting
         return False
 
 
+_EXPR_FILE_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+
+
 def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """Read the active expression; if a thought TTL expired, keep the permanent painting spot intact.
     Checks both primary state_home and /tmp/gemini-prism fallback (when not overridden) and picks the freshest.
@@ -271,13 +273,21 @@ def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[floa
         if not target.is_file() or target.is_symlink():
             continue
         try:
-            data = json.loads(target.read_text(encoding="utf-8"))
+            st = target.stat()
+            cache_k = (str(target), st.st_mtime_ns, st.st_size)
+            data = _EXPR_FILE_CACHE.get(cache_k)
+            if data is None:
+                data = json.loads(target.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data.get("v") == 1:
+                    if len(_EXPR_FILE_CACHE) >= 16:
+                        _EXPR_FILE_CACHE.clear()
+                    _EXPR_FILE_CACHE[cache_k] = data
             if not isinstance(data, dict) or data.get("v") != 1:
                 continue
             upd = float(data.get("updatedAt") or 0.0)
             if upd > best_ts:
                 best_ts = upd
-                best_data = data
+                best_data = dict(data)
         except (OSError, ValueError, TypeError):
             continue
 
