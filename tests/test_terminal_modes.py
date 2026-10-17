@@ -113,6 +113,31 @@ class TestTerminalModes(unittest.TestCase):
         self.assertIn("Notice: Not currently inside a tmux session", proc.stdout)
         self.assertIn("mouse on", proc.stdout)
 
+    def test_prism_personal_voice_and_facets(self):
+        state = {"mode": "resolved", "ended": False, "offer": "crystallize", "activeCalls": 0, "activeBranches": 0, "hover": "Prism · crystallized · 1 ready"}
+        frame = terminal.render_prism_frame(state, 80, 24, t=1.5, mode="balanced", unicode_mode=True, use_color=False)
+        self.assertIn("⟨ ⟨ ✦ ⟩ ⟩", frame)
+        self.assertIn("thought crystallized for you", frame)
+
+    def test_post_tool_use_refraction_impulse(self):
+        import json
+        import time
+        d = Path(tempfile.mkdtemp(prefix="prism-impulse-"))
+        now = time.time()
+        events = [
+            {"seq": 1, "t": now - 5.0, "type": "turn.attend"},
+            {"seq": 2, "t": now - 0.5, "type": "refract.resolve", "kind": "inspect", "key": "a" * 64},
+        ]
+        (d / "live.json").write_text(json.dumps({"events": events}), encoding="utf-8")
+        st = terminal.load_feed_state(d, now=now)
+        self.assertEqual(st["mode"], "refracting")
+        self.assertEqual(st["lanes"], [{"kind": "inspect"}])
+        self.assertEqual(st["spectrum"], {"inspect": 1})
+        # After impulse window expires (>2.8s), returns to attending while keeping turn spectrum
+        st_later = terminal.load_feed_state(d, now=now + 4.0)
+        self.assertEqual(st_later["mode"], "attending")
+        self.assertEqual(st_later["spectrum"], {"inspect": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,15 @@ KIND_COLOR_MAP = {
 }
 
 
+KIND_RGB_MAP = {
+    "inspect": RGB_CYAN,
+    "change": RGB_GOLD,
+    "execute": RGB_VIOLET,
+    "service": RGB_TEAL,
+    "other": RGB_AMBER,
+}
+
+
 def _sample_gradient(stops: List[tuple], pos: float) -> str:
     """Sample a cyclic gradient of [(r,g,b), ...] at pos in [0.0, 1.0)."""
     n = len(stops)
@@ -124,6 +133,123 @@ def _get_ring_color(ring_id: int, phi: float, theta: float, sem_mode: str, offer
     stops1 = [RGB_CYAN, RGB_TEAL, RGB_VIOLET, RGB_WHITE]
     stops2 = [RGB_VIOLET, RGB_WHITE, RGB_GOLD, RGB_CYAN]
     return _sample_gradient(stops1 if ring_id == 1 else stops2, pos)
+
+
+# Prism's personal crystalline reflections (strictly zero-leakage, derived solely from semantic phase)
+PRISM_VOICE = {
+    "idle": [
+        "holding still in the lattice · awaiting incident light",
+        "polarized rings in quiet harmonic · ready to refract",
+        "clear aperture · listening across the spectrum",
+        "facets aligned in cyan · calm and attentive",
+    ],
+    "attending": [
+        "gathering incident light · aligning internal facets",
+        "tracing the geometry of your thought · phase-locking",
+        "bending light through the lattice · seeking clarity",
+        "weighing symmetries in the core · attending closely",
+    ],
+    "attending_after_refract": [
+        "weaving refracted traces into a coherent crystal",
+        "integrating spectral paths inside the core",
+        "harmonizing gathered facets · shaping the reply",
+    ],
+    "refracting_inspect": [
+        "splitting cyan rays · reading the grain of the workspace",
+        "probing focal planes · mapping structure in clear light",
+    ],
+    "refracting_change": [
+        "forging solar-gold facets · reshaping the living lattice",
+        "inscribing warm amber geometry into the crystal",
+    ],
+    "refracting_execute": [
+        "channeling electric violet · running live impulse",
+        "resonating across the shell · observing active motion",
+    ],
+    "refracting_service": [
+        "bridging emerald harmonics · communing with external nodes",
+        "tuning teal frequencies across the bridge",
+    ],
+    "refracting_other": [
+        "dispersing full spectrum across active focal lanes",
+        "splitting white light into parallel prismatic rays",
+    ],
+    "branching": [
+        "constellation of sub-crystals · weaving parallel orbits",
+        "holding multiple focal planes in violet phase",
+    ],
+    "approval": [
+        "aperture held open · awaiting your hand on the prism",
+        "poised at the threshold · ready upon your consent",
+    ],
+    "resolved": [
+        "lattice settled in warm white · thought crystallized for you",
+        "refraction complete · holding this finished facet out",
+    ],
+    "halted": [
+        "beam interrupted · facets cooling in quiet gray",
+    ],
+    "ended": [
+        "light folded back into the dark · until we wake again",
+    ],
+}
+
+
+def _get_prism_voice(
+    sem_mode: str,
+    offer: Optional[str],
+    primary_kind: str,
+    spectrum: Optional[Dict[str, int]],
+    t: float,
+    unicode_mode: bool,
+) -> str:
+    """Select Prism's current personal inner reflection line."""
+    if sem_mode == "ended":
+        pool = PRISM_VOICE["ended"]
+    elif sem_mode == "halted":
+        pool = PRISM_VOICE["halted"]
+    elif sem_mode == "approval":
+        pool = PRISM_VOICE["approval"]
+    elif offer or sem_mode == "resolved":
+        pool = PRISM_VOICE["resolved"]
+    elif sem_mode == "branching":
+        pool = PRISM_VOICE["branching"]
+    elif sem_mode == "refracting":
+        key = f"refracting_{primary_kind}" if f"refracting_{primary_kind}" in PRISM_VOICE else "refracting_other"
+        pool = PRISM_VOICE[key]
+    elif sem_mode == "attending":
+        if spectrum and sum(spectrum.values()) > 0:
+            pool = PRISM_VOICE["attending_after_refract"]
+        else:
+            pool = PRISM_VOICE["attending"]
+    else:
+        pool = PRISM_VOICE["idle"]
+
+    idx = int(max(0.0, t) // 4.0) % len(pool)
+    phrase = pool[idx]
+    if not unicode_mode:
+        phrase = phrase.replace("·", "-")
+        return f"~ {phrase} ~"
+    return f"✧  {phrase}  ✧"
+
+
+def _get_facet_color(pos: float, t: float, sem_mode: str, offer: Optional[str], primary_kind: str = "") -> str:
+    """Calculate living iridescent shimmer across Prism's central jewel facets."""
+    phase = (pos + t * 0.35) % 1.0
+    if sem_mode == "approval":
+        return _sample_gradient([RGB_RED, RGB_GOLD, RGB_WHITE, RGB_RED], phase)
+    if sem_mode in ("ended", "halted"):
+        return C_DARK if sem_mode == "ended" else C_DIM
+    if offer or sem_mode == "resolved":
+        return _sample_gradient([RGB_WHITE, RGB_GOLD, RGB_WHITE, RGB_CYAN], phase)
+    if sem_mode == "refracting":
+        base_rgb = KIND_RGB_MAP.get(primary_kind, RGB_CYAN)
+        return _sample_gradient([base_rgb, RGB_WHITE, base_rgb, RGB_TEAL], phase)
+    if sem_mode == "branching":
+        return _sample_gradient([RGB_VIOLET, RGB_CYAN, RGB_WHITE, RGB_VIOLET], phase)
+    if sem_mode == "attending":
+        return _sample_gradient([RGB_GOLD, RGB_WHITE, RGB_CYAN, RGB_GOLD], phase)
+    return _sample_gradient([RGB_CYAN, RGB_TEAL, RGB_WHITE, RGB_VIOLET], phase)
 
 
 def _strip_colors(text: str) -> str:
@@ -197,6 +323,7 @@ def render_prism_frame(
     active_calls = state_data.get("activeCalls", 0)
     active_branches = state_data.get("activeBranches", 0)
     lanes = state_data.get("lanes", [])
+    spectrum = state_data.get("spectrum") or {}
     hover = state_data.get("hover", "Prism · ready")
 
     primary_kind = lanes[0].get("kind", "") if lanes else ""
@@ -223,12 +350,16 @@ def render_prism_frame(
         g_ring1 = "╱"
         g_ring2 = "╲"
         g_node = "◈"
+        g_glint = "✧"
+        g_spark = "·"
     else:
         g_core = "." if ended else ("!" if sem_mode == "approval" else ("*" if offer else "o"))
         g_sat = "#"
         g_ring1 = "/"
         g_ring2 = "\\"
         g_node = "o"
+        g_glint = "+"
+        g_spark = "."
 
     # Core and facet colors
     if sem_mode == "approval":
@@ -248,9 +379,9 @@ def render_prism_frame(
         core_center_col = C_WHITE if primary_kind in ("change", "inspect") else core_col
         facet_col = core_col
     elif sem_mode == "attending":
-        core_col = C_CYAN
+        core_col = C_GOLD
         core_center_col = C_WHITE
-        facet_col = C_CYAN
+        facet_col = C_GOLD
     else:
         core_col = C_CYAN
         core_center_col = C_CYAN
@@ -273,30 +404,59 @@ def render_prism_frame(
     # Density of polarized ring steps scales with radius so rings stay smooth and continuous
     steps = max(24, int(ring_radius_x * 2.8))
 
-    # Animation angle
-    speed = 0.0 if (reduced_motion or ended) else (0.4 if calm else 0.8)
+    # Animation angle & harmonic breathing
+    speed = 0.0 if (reduced_motion or ended) else (0.4 if calm else 0.85)
     theta = t * speed
+    animate_live = not (reduced_motion or ended) and t > 0.0
+    breath = 1.0 + (0.035 * math.sin(t * 1.6) if animate_live else 0.0)
+    eff_rx = ring_radius_x * breath
+    eff_ry = ring_radius_y * breath
 
-    # 1. Outer Polarized Rings with living chromatic dispersion
+    # 0. Ambient Prismatic Caustic Field (upper & outer optical aura when canvas has room)
+    if height >= 18 and width >= 34 and not ended and not (t == 0.0 and reduced_motion):
+        has_link_peers = bool(link_state and link_state.get("peers"))
+        aura_angles = [0.35, 0.85, 2.29, 2.79, 3.55, 5.85]
+        for a_idx, ang in enumerate(aura_angles):
+            # When Link peers are present in the lower corners, keep ambient sparkles in the upper hemisphere
+            if has_link_peers and math.sin(ang) > 0.1:
+                continue
+            drift = ang + (theta * 0.25 * (1 if a_idx % 2 == 0 else -1))
+            ax = cx + int(math.cos(drift) * (ring_radius_x + 3 + (a_idx % 2) * 2))
+            ay = cy + int(math.sin(drift) * (ring_radius_y + 1))
+            if 1 <= ay < hud_y - 2 and 2 <= ax < width - 2:
+                twinkle = math.sin(t * 2.4 + a_idx * 1.7)
+                if twinkle > -0.2:
+                    ch_aura = g_glint if twinkle > 0.55 else g_spark
+                    col_aura = _get_facet_color(a_idx / len(aura_angles), t, sem_mode, offer, primary_kind) if use_color else ""
+                    grid.put(ax, ay, ch_aura, col_aura)
+
+    # 1. Outer Polarized Rings with living chromatic dispersion & caustic glints
+    glint_stride = max(6, steps // 4)
+    glint_offset = int(t * 7.0) if animate_live else -1
     for i in range(steps):
         phi = (i / steps) * (2.0 * math.pi)
         # Ring 1
-        rx1 = cx + int(math.cos(phi + theta) * ring_radius_x)
-        ry1 = cy + int(math.sin(phi + theta) * ring_radius_y * 0.7 - math.cos(phi + theta) * 1.5)
-        col1 = _get_ring_color(1, phi, theta, sem_mode, offer, primary_kind) if use_color else ""
-        grid.put(rx1, ry1, g_ring1, col1)
+        rx1 = cx + int(math.cos(phi + theta) * eff_rx)
+        ry1 = cy + int(math.sin(phi + theta) * eff_ry * 0.7 - math.cos(phi + theta) * 1.5)
+        is_glint1 = animate_live and ((i + glint_offset) % glint_stride == 0)
+        col1 = (C_WHITE if is_glint1 else _get_ring_color(1, phi, theta, sem_mode, offer, primary_kind)) if use_color else ""
+        grid.put(rx1, ry1, g_glint if is_glint1 else g_ring1, col1)
 
         # Ring 2 (counter-angle)
-        rx2 = cx + int(math.cos(phi - theta) * ring_radius_x)
-        ry2 = cy + int(math.sin(phi - theta) * ring_radius_y * 0.7 + math.cos(phi - theta) * 1.5)
-        col2 = _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind) if use_color else ""
-        grid.put(rx2, ry2, g_ring2, col2)
+        rx2 = cx + int(math.cos(phi - theta) * eff_rx)
+        ry2 = cy + int(math.sin(phi - theta) * eff_ry * 0.7 + math.cos(phi - theta) * 1.5)
+        is_glint2 = animate_live and ((i - glint_offset) % glint_stride == 0)
+        col2 = (C_WHITE if is_glint2 else _get_ring_color(2, phi, theta, sem_mode, offer, primary_kind)) if use_color else ""
+        grid.put(rx2, ry2, g_glint if is_glint2 else g_ring2, col2)
 
-    # 2. Refraction rays for active calls
+    # 2. Refraction rays for active calls (with traveling photon pulses)
     if lanes:
+        dash = "─" if unicode_mode else "-"
+        pulse_glyph = ("❖" if unicode_mode else "*")
         for idx, lane in enumerate(lanes[:6]):
             kind = lane.get("kind", "other")
             col = KIND_COLOR_MAP.get(kind, C_CYAN)
+            rgb_lane = KIND_RGB_MAP.get(kind, RGB_CYAN)
             side = 1 if (idx % 2 == 0) else -1
             row_offset = (idx // 2) - 1
             max_reach = max(8, (width // 2) - len(kind) - 4)
@@ -304,27 +464,42 @@ def render_prism_frame(
             tx = cx + reach
             ty = cy + row_offset * 2
 
-            # Ray connector
-            dash = "─" if unicode_mode else "-"
             start_x = cx + (side * 4)
-            for x_pos in range(min(start_x, tx), max(start_x, tx) + 1):
-                grid.put(x_pos, ty, dash, col)
-            grid.put(tx, ty, g_node, col)
-            grid.put_str(tx + (1 if side > 0 else -len(kind) - 1), ty, f"[{kind}]", col)
+            x_min, x_max = min(start_x, tx), max(start_x, tx)
+            span = max(1, x_max - x_min)
+            pulse_pos = int((t * 12.0 + idx * 3) % span) if not reduced_motion else -1
+            for step_i, x_pos in enumerate(range(x_min, x_max + 1)):
+                dist_from_core = step_i if side > 0 else (span - step_i)
+                is_pulse = (dist_from_core == pulse_pos) and not ended
+                ray_col = (
+                    (C_WHITE if is_pulse else _sample_gradient([RGB_WHITE, rgb_lane, rgb_lane], dist_from_core / span))
+                    if use_color
+                    else ""
+                )
+                grid.put(x_pos, ty, pulse_glyph if is_pulse else dash, ray_col)
+            grid.put(tx, ty, g_node, C_WHITE if (use_color and animate_live and int(t * 6) % 2 == 0) else (col if use_color else ""))
+            grid.put_str(tx + (1 if side > 0 else -len(kind) - 1), ty, f"[{kind}]", col if use_color else "")
 
-    # 3. Subagent branch satellites
+    # 3. Subagent branch satellites with orbital wakes
     if active_branches > 0:
         sat_colors = [C_GOLD, C_CYAN, C_VIOLET, C_TEAL]
         for b_idx in range(min(4, active_branches)):
             b_angle = (theta * 0.8) + (b_idx * math.pi / 2.0)
+            sat_col = sat_colors[b_idx % len(sat_colors)] if use_color else ""
+            if not reduced_motion and not ended:
+                for w_step, w_ch in ((1, g_glint), (2, g_spark)):
+                    w_ang = b_angle - w_step * 0.16
+                    wx = cx + int(math.cos(w_ang) * (ring_radius_x + 3))
+                    wy = cy + int(math.sin(w_ang) * (ring_radius_y + 2))
+                    grid.put(wx, wy, w_ch, C_DIM if w_step == 2 and use_color else sat_col)
             bx = cx + int(math.cos(b_angle) * (ring_radius_x + 3))
             by = cy + int(math.sin(b_angle) * (ring_radius_y + 2))
-            grid.put(bx, by, g_sat, sat_colors[b_idx % len(sat_colors)] if use_color else "")
+            grid.put(bx, by, g_sat, sat_col)
 
-    # 4. Central Faceted Core
-    if ring_radius_x >= 24 and ring_radius_y >= 9 and height >= 28:
+    # 4. Central Faceted Core (scales across compact top banners, 35x40 side panes, and wide terminals)
+    if ring_radius_x >= 22 and ring_radius_y >= 7 and height >= 26:
         core_level = 3
-    elif ring_radius_x >= 16 and ring_radius_y >= 6 and height >= 20:
+    elif ring_radius_x >= 11 and ring_radius_y >= 4 and height >= 18:
         core_level = 2
     else:
         core_level = 1
@@ -346,44 +521,58 @@ def render_prism_frame(
         lb, rb = "<", ">"
         sl, bs = "/", "\\"
 
+    f_col_top = _get_facet_color(0.0, t, sem_mode, offer, primary_kind) if use_color else ""
+    f_col_mid = _get_facet_color(0.25, t, sem_mode, offer, primary_kind) if use_color else ""
+    f_col_bot = _get_facet_color(0.5, t, sem_mode, offer, primary_kind) if use_color else ""
+    inner_facet_col = (C_WHITE if (offer or sem_mode in ("attending", "refracting")) else f_col_mid) if use_color else ""
+
     if core_level == 3:
         # Apex facets
-        grid.put(cx, cy - 3, up, facet_col)
-        grid.put(cx, cy + 3, dn, facet_col)
+        grid.put(cx, cy - 3, up, f_col_top)
+        grid.put(cx, cy + 3, dn, f_col_bot)
         # Outer faceted crown
-        grid.put(cx - 2, cy - 2, sl, facet_col)
-        grid.put(cx + 2, cy - 2, bs, facet_col)
-        grid.put(cx - 4, cy - 1, sl, facet_col)
-        grid.put(cx + 4, cy - 1, bs, facet_col)
-        grid.put(cx - 6, cy, lb, facet_col)
-        grid.put(cx + 6, cy, rb, facet_col)
-        grid.put(cx - 4, cy + 1, bs, facet_col)
-        grid.put(cx + 4, cy + 1, sl, facet_col)
-        grid.put(cx - 2, cy + 2, bs, facet_col)
-        grid.put(cx + 2, cy + 2, sl, facet_col)
+        grid.put(cx - 2, cy - 2, sl, f_col_top)
+        grid.put(cx + 2, cy - 2, bs, f_col_top)
+        grid.put(cx - 4, cy - 1, sl, f_col_mid)
+        grid.put(cx + 4, cy - 1, bs, f_col_mid)
+        grid.put(cx - 6, cy, lb, f_col_mid)
+        grid.put(cx + 6, cy, rb, f_col_mid)
+        grid.put(cx - 4, cy + 1, bs, f_col_bot)
+        grid.put(cx + 4, cy + 1, sl, f_col_bot)
+        grid.put(cx - 2, cy + 2, bs, f_col_bot)
+        grid.put(cx + 2, cy + 2, sl, f_col_bot)
+        # Coronal glints when active or crystallized
+        if sem_mode in ("attending", "refracting", "branching", "resolved") or offer:
+            grid.put(cx - 3, cy, g_spark, f_col_top)
+            grid.put(cx + 3, cy, g_spark, f_col_top)
         # Inner facets
-        inner_facet_col = C_WHITE if (offer or sem_mode == "attending") else facet_col
         grid.put(cx, cy - 1, up, inner_facet_col)
         grid.put(cx, cy + 1, dn, inner_facet_col)
         grid.put(cx - 2, cy, lb, inner_facet_col)
         grid.put(cx + 2, cy, rb, inner_facet_col)
-        grid.put(cx, cy, g_core, core_center_col)
+        grid.put(cx, cy, g_core, core_center_col if use_color else "")
     elif core_level == 2:
-        grid.put(cx, cy - 2, up, facet_col)
-        grid.put(cx, cy + 2, dn, facet_col)
-        grid.put(cx - 2, cy - 1, sl, facet_col)
-        grid.put(cx + 2, cy - 1, bs, facet_col)
-        grid.put(cx - 4, cy, lb, facet_col)
-        grid.put(cx + 4, cy, rb, facet_col)
-        grid.put(cx - 2, cy + 1, bs, facet_col)
-        grid.put(cx + 2, cy + 1, sl, facet_col)
-        grid.put(cx, cy, g_core, core_center_col)
+        # Outer diamond crown
+        grid.put(cx, cy - 2, up, f_col_top)
+        grid.put(cx, cy + 2, dn, f_col_bot)
+        grid.put(cx - 2, cy - 1, sl, f_col_top)
+        grid.put(cx + 2, cy - 1, bs, f_col_top)
+        grid.put(cx - 4, cy, lb, f_col_mid)
+        grid.put(cx + 4, cy, rb, f_col_mid)
+        grid.put(cx - 2, cy + 1, bs, f_col_bot)
+        grid.put(cx + 2, cy + 1, sl, f_col_bot)
+        # Inner jewel cradle (preserves ⟨ ⟐ ⟩ and < o > symmetry at the core)
+        grid.put(cx, cy - 1, up, inner_facet_col)
+        grid.put(cx, cy + 1, dn, inner_facet_col)
+        grid.put(cx - 2, cy, lb, inner_facet_col)
+        grid.put(cx + 2, cy, rb, inner_facet_col)
+        grid.put(cx, cy, g_core, core_center_col if use_color else "")
     else:
-        grid.put(cx - 2, cy, lb, facet_col)
-        grid.put(cx + 2, cy, rb, facet_col)
-        grid.put(cx, cy - 1, up, facet_col)
-        grid.put(cx, cy + 1, dn, facet_col)
-        grid.put(cx, cy, g_core, core_center_col)
+        grid.put(cx - 2, cy, lb, facet_col if use_color else "")
+        grid.put(cx + 2, cy, rb, facet_col if use_color else "")
+        grid.put(cx, cy - 1, up, facet_col if use_color else "")
+        grid.put(cx, cy + 1, dn, facet_col if use_color else "")
+        grid.put(cx, cy, g_core, core_center_col if use_color else "")
 
     # 5. Cyclops Link: Spark and Keeper in their own looks at their seats, and the threads they declare
     hud_y = height - 2
@@ -391,24 +580,40 @@ def render_prism_frame(
         link_view.draw(grid, link_state, link_sheets or {}, centre=(cx, cy), hud_y=hud_y, t=t,
                        unicode_mode=unicode_mode, use_color=use_color, reduced_motion=reduced_motion or ended)
 
-    # 6. Status Banner
+    # 6. Status Banner & Personal Crystalline Voice
     display_hover = hover if unicode_mode else hover.replace("·", "-")
     status_bar = f" {g_core}  {display_hover} "
-    grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, facet_col)
+    grid.put_str(max(1, (width - len(status_bar)) // 2), hud_y, status_bar, facet_col if use_color else "")
 
+    voice_line = _get_prism_voice(sem_mode, offer, primary_kind, spectrum, t, unicode_mode)
     if is_focus:
+        # In focus mode, place Prism's personal voice just above the status banner when room permits
+        if height >= 20 and not (link_state and link_state.get("peers")) and len(voice_line) < width - 2:
+            grid.put_str(max(1, (width - len(voice_line)) // 2), hud_y - 1, voice_line, C_DIM if use_color else "")
         sub_info = f"Calls: {active_calls}  Branches: {active_branches}  Offer: {offer or 'none'}  Comp: {mode}"
         if link_state is not None and link_view is not None:
             sub_info += "  " + link_view.status(link_state)
-        grid.put_str(max(1, (width - len(sub_info)) // 2), hud_y + 1, sub_info, C_DIM)
+        elif spectrum and sum(spectrum.values()) > 0:
+            spec_parts = [f"{k}:{v}" for k, v in sorted(spectrum.items()) if v > 0]
+            candidate = sub_info + "  Spectrum: " + " ".join(spec_parts)
+            if len(candidate) <= width - 2:
+                sub_info = candidate
+        grid.put_str(max(1, (width - len(sub_info)) // 2), hud_y + 1, sub_info, C_DIM if use_color else "")
+    elif height >= 12 and not (t == 0.0 and reduced_motion and height <= 10):
+        # In balanced mode, show Prism's living inner reflection on the whisper row below the banner
+        if len(voice_line) > width - 2:
+            voice_line = voice_line[: max(0, width - 2)]
+        grid.put_str(max(1, (width - len(voice_line)) // 2), hud_y + 1, voice_line, C_DIM if use_color else "")
 
     return grid.render()
 
 
-def load_feed_state(feed_dir: Path) -> dict:
+def load_feed_state(feed_dir: Path, now: Optional[float] = None) -> dict:
     """Read latest state from live.json or fallback to durable.json."""
     if not feed_dir or not feed_dir.is_dir():
-        return {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "hover": "Prism · ready"}
+        return {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "spectrum": {}, "hover": "Prism · ready"}
+
+    now_ts = time.time() if now is None else now
 
     for filename in ["live.json", "durable.json"]:
         p = feed_dir / filename
@@ -418,32 +623,60 @@ def load_feed_state(feed_dir: Path) -> dict:
                 events = data.get("events", [])
                 if isinstance(events, list) and events:
                     active_calls = []
+                    recent_impulses = []
+                    spectrum: Dict[str, int] = {}
                     active_branches = 0
                     offer = None
                     latest = events[-1]
                     typ = latest.get("type", "turn.attend")
 
+                    turn_closed = False
                     for ev in events:
                         t_name = ev.get("type")
+                        ev_t = float(ev.get("t", 0.0))
+                        ev_kind = ev.get("kind")
                         if t_name == "refract.start":
-                            active_calls.append({"kind": ev.get("kind", "inspect")})
-                        elif t_name in ("refract.resolve", "refract.halt") and active_calls:
-                            active_calls.pop()
+                            k = ev_kind or "inspect"
+                            active_calls.append({"kind": k})
+                            spectrum[k] = spectrum.get(k, 0) + 1
+                        elif t_name in ("refract.resolve", "refract.halt"):
+                            if active_calls:
+                                active_calls.pop()
+                            elif ev_kind:
+                                spectrum[ev_kind] = spectrum.get(ev_kind, 0) + 1
+                            if ev_kind and (0.0 <= now_ts - ev_t <= 2.8):
+                                recent_impulses.append({"kind": ev_kind})
                         elif t_name == "branch.start":
                             active_branches += 1
-                        elif t_name == "branch.resolve" and active_branches > 0:
-                            active_branches -= 1
+                        elif t_name == "branch.resolve":
+                            if active_branches > 0:
+                                active_branches -= 1
                         # the reply is held out from its turn's resolve until a new turn, a halt, a copy or a wake
                         if t_name in ("turn.resolve", "reply.crystallize"):
                             offer = "crystallize"
+                            recent_impulses.clear()
+                            turn_closed = True
                         elif t_name in ("session.wake", "turn.attend", "turn.halt", "reply.copied"):
                             offer = None
+                            if t_name in ("session.wake", "turn.halt"):
+                                spectrum.clear()
+                                recent_impulses.clear()
+                                turn_closed = (t_name == "turn.halt")
+                            elif t_name == "turn.attend" and turn_closed:
+                                spectrum.clear()
+                                recent_impulses.clear()
+                                turn_closed = False
+
+                    # Surface recent PostToolUse impulses (<2.8s) as live refraction rays during active turns
+                    effective_calls = active_calls if active_calls else (
+                        recent_impulses[-4:] if typ in ("refract.resolve", "refract.halt", "turn.attend") else []
+                    )
 
                     if typ == "session.end":
                         sem_mode = "ended"
                     elif typ == "approval.request":
                         sem_mode = "approval"
-                    elif active_calls:
+                    elif effective_calls:
                         sem_mode = "refracting"
                     elif active_branches:
                         sem_mode = "branching"
@@ -458,8 +691,8 @@ def load_feed_state(feed_dir: Path) -> dict:
                         hover_text = "Prism · ready"
                     else:
                         hover_text = f"Prism · {sem_mode}"
-                    if sem_mode == "refracting" and active_calls:
-                        kinds = sorted({c["kind"] for c in active_calls})
+                    if sem_mode == "refracting" and effective_calls:
+                        kinds = sorted({c["kind"] for c in effective_calls})
                         hover_text = f"Prism · refracting · {', '.join(kinds)}"
                     elif sem_mode == "branching":
                         hover_text = f"Prism · parallel synthesis · {active_branches} branches"
@@ -472,15 +705,16 @@ def load_feed_state(feed_dir: Path) -> dict:
                         "mode": sem_mode,
                         "ended": typ == "session.end",
                         "offer": offer,
-                        "activeCalls": len(active_calls),
+                        "activeCalls": len(effective_calls),
                         "activeBranches": active_branches,
-                        "lanes": active_calls,
+                        "lanes": effective_calls,
+                        "spectrum": spectrum,
                         "hover": hover_text,
                     }
             except Exception:
                 pass
 
-    return {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "hover": "Prism · ready"}
+    return {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "spectrum": {}, "hover": "Prism · ready"}
 
 
 def get_demo_state(t: float, forced_state: str = None) -> dict:

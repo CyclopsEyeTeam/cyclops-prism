@@ -140,10 +140,14 @@ def adapt_hook_event(
         tool_call = payload.get("toolCall", {}) if isinstance(payload.get("toolCall"), dict) else {}
         tool_name = payload.get("toolName", "") or tool_call.get("name", "")
         raw_key = matching_key or (digest(f"{conv_id}:{step_idx}:{tool_name}") if tool_name else digest(f"{conv_id}:{step_idx}"))
+        kind = classify_tool(tool_name) if tool_name else None
 
         # Error return
         if payload.get("error"):
-            return {"seq": sequence, "t": stamp, "type": "refract.halt", "key": raw_key}
+            ev = {"seq": sequence, "t": stamp, "type": "refract.halt", "key": raw_key}
+            if kind:
+                ev["kind"] = kind
+            return ev
 
         # Subagent return: check tool name, payload flag, explicit param, or state's active_branches
         is_sub = (
@@ -156,7 +160,10 @@ def adapt_hook_event(
             return {"seq": sequence, "t": stamp, "type": "branch.resolve", "key": raw_key}
 
         # Standard tool resolution
-        return {"seq": sequence, "t": stamp, "type": "refract.resolve", "key": raw_key}
+        ev = {"seq": sequence, "t": stamp, "type": "refract.resolve", "key": raw_key}
+        if kind:
+            ev["kind"] = kind
+        return ev
 
     # 4. Stop -> turn.resolve or turn.halt
     elif hook_event == "Stop":
