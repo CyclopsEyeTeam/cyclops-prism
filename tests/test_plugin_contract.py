@@ -17,7 +17,7 @@ class TestPluginContract(unittest.TestCase):
         self.assertTrue(p_path.is_file(), "plugin.json must exist")
         data = json.loads(p_path.read_text(encoding="utf-8"))
         self.assertEqual(data.get("name"), "cyclops-prism")
-        self.assertEqual(data.get("version"), "1.2.1")
+        self.assertEqual(data.get("version"), "1.6.0")
         self.assertIn("hooks", data)
         self.assertIn("interface", data)
 
