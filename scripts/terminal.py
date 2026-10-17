@@ -370,8 +370,10 @@ def render_prism_frame(
     expr_art = expr.get("art") if isinstance(expr.get("art"), list) else []
     expr_painting = expr.get("painting") if isinstance(expr.get("painting"), dict) else None
 
-    has_link_peers = bool(link_state and link_state.get("peers"))
-    has_painting = bool(expr_painting and painter is not None and height >= 20 and not has_link_peers)
+    has_link_peers = bool(
+        link_state and any(p.get("presence") != "prism" for p in (link_state.get("peers") or []))
+    )
+    has_painting = bool(expr_painting and painter is not None and height >= 20)
 
     cx = width // 2
     if has_painting:
@@ -838,30 +840,50 @@ def render_prism_frame(
                 col_v = _sample_gradient(v_stops, pos_v)
             grid.put(x0 + i_ch, y_row, ch_v, col_v)
 
+    voice_lines: List[str] = []
     if expr_thought:
         raw_t = expr_thought if unicode_mode else "".join(ch if ord(ch) < 128 else "-" for ch in expr_thought.replace("·", "-"))
         max_inner = max(8, width - 10)
-        if len(raw_t) > max_inner and animate_live:
-            padded = raw_t + "   ·   "
-            offset_m = int(t * 6.0) % len(padded)
-            doubled = padded + padded
-            raw_t = doubled[offset_m : offset_m + max_inner]
-        elif len(raw_t) > max_inner:
-            raw_t = raw_t[:max_inner]
         if unicode_mode:
             wings = ["✧", "✦", "◈", "✦"]
             w_l = wings[int(max(0.0, t) * 3.0) % len(wings)] if t > 0.0 else "✧"
             w_r = wings[(int(max(0.0, t) * 3.0) + 2) % len(wings)] if t > 0.0 else "✧"
-            voice_line = f"{w_l}  {raw_t}  {w_r}"
+            fmt_line = lambda s: f"{w_l}  {s}  {w_r}"
         else:
             wings_ascii = ["~", "*", "+", "*"]
             w_l = wings_ascii[int(max(0.0, t) * 3.0) % len(wings_ascii)] if t > 0.0 else "~"
             w_r = wings_ascii[(int(max(0.0, t) * 3.0) + 2) % len(wings_ascii)] if t > 0.0 else "~"
-            voice_line = f"{w_l} {raw_t} {w_r}"
-    else:
-        voice_line = _get_prism_voice(sem_mode, offer, primary_kind, spectrum, t, unicode_mode)
+            fmt_line = lambda s: f"{w_l} {s} {w_r}"
 
+        if len(raw_t) > max_inner and height >= 24 and not is_focus:
+            # Word-wrap cleanly across 2 balanced lines so the full thought is readable at once
+            target_split = min(max_inner, max(len(raw_t) // 2, len(raw_t) - max_inner))
+            split_at = raw_t.rfind(" ", 1, max_inner + 1)
+            best_space = raw_t.rfind(" ", 1, target_split + 8)
+            if best_space > 0 and len(raw_t[best_space + 1 :]) <= max_inner:
+                split_at = best_space
+            if split_at <= 0:
+                split_at = max_inner
+            line1 = raw_t[:split_at].strip()
+            line2 = raw_t[split_at:].strip()[:max_inner]
+            voice_lines = [fmt_line(line1)]
+            if line2:
+                voice_lines.append(fmt_line(line2))
+        else:
+            if len(raw_t) > max_inner and animate_live:
+                padded = raw_t + "   ·   "
+                offset_m = int(t * 6.0) % len(padded)
+                doubled = padded + padded
+                raw_t = doubled[offset_m : offset_m + max_inner]
+            elif len(raw_t) > max_inner:
+                raw_t = raw_t[:max_inner]
+            voice_lines = [fmt_line(raw_t)]
+    else:
+        voice_lines = [_get_prism_voice(sem_mode, offer, primary_kind, spectrum, t, unicode_mode)]
+
+    voice_line = voice_lines[0]
     c_telemetry = "\033[38;2;150;215;240m" if use_color else ""
+    paint_top_y = hud_y + 2
     if is_focus:
         # In focus mode, place Prism's personal voice just above the status banner when room permits
         if fig_height >= 20 and not (link_state and link_state.get("peers")) and len(voice_line) < width - 2:
@@ -876,10 +898,13 @@ def render_prism_frame(
                 sub_info = candidate
         grid.put_str(max(1, (width - len(sub_info)) // 2), hud_y + 1, sub_info, c_telemetry)
     elif height >= 12 and not (t == 0.0 and reduced_motion and height <= 10):
-        # In balanced mode, show Prism's living inner reflection on the whisper row below the banner
-        if len(voice_line) > width - 2:
-            voice_line = voice_line[: max(0, width - 2)]
-        _put_luminous_voice(hud_y + 1, voice_line)
+        # In balanced mode, show Prism's living inner reflection on the whisper row(s) below the banner
+        for v_idx, v_ln in enumerate(voice_lines[:2]):
+            if hud_y + 1 + v_idx < height:
+                if len(v_ln) > width - 2:
+                    v_ln = v_ln[: max(0, width - 2)]
+                _put_luminous_voice(hud_y + 1 + v_idx, v_ln)
+        paint_top_y = hud_y + 1 + len(voice_lines[:2])
 
     # 7. Lower-Pane Terminal Art Painting Block (Spark/Cyclops half-block mark canvas + italic `✎ Title` + stats)
     if has_painting:
@@ -887,7 +912,7 @@ def render_prism_frame(
             grid,
             expr_painting,
             width=width,
-            top_y=hud_y + 2,
+            top_y=paint_top_y,
             bot_y=height,
             t=t,
             unicode_mode=unicode_mode,
@@ -1199,9 +1224,7 @@ def handle_paint(argv: List[str]) -> None:
 
     words = [w.strip() for w in parsed.action if w.strip()]
     if words and words[0].lower() in ("clear", "off", "none"):
-        cur = mcp_server.read_expression() or {}
-        cur.pop("painting", None)
-        mcp_server.clear_expression()
+        mcp_server.clear_expression(clear_painting=True)
         print("✓ Prism painting cleared.")
         return
 
@@ -1375,21 +1398,41 @@ def main():
         last_expr_check = -1.0
         expr_state = None
         prev_size = None
+        self_path = Path(__file__).resolve()
+        try:
+            boot_mtime = self_path.stat().st_mtime
+        except OSError:
+            boot_mtime = 0.0
+        default_painting = painter.choose_curated_painting(0) if painter is not None else None
+        if default_painting is not None:
+            default_painting["at"] = 0.0
         while True:
             try:
                 t = time.time() - t0
                 cols, rows = shutil.get_terminal_size((80, 24))
 
-                # Auto-recheck feed dynamically every 0.5s if running in auto mode
-                if not explicit_feed and not args.demo and not args.demo_state and presence_feed and (t - last_feed_check >= 0.5):
+                # Auto-recheck feed & hot-reload if terminal.py was updated on disk
+                if not explicit_feed and not args.demo and not args.demo_state and (t - last_feed_check >= 0.5):
                     last_feed_check = t
-                    discovered = presence_feed.find_active_feed()
-                    if discovered and discovered != feed_dir:
-                        feed_dir = discovered
+                    if boot_mtime > 0.0:
+                        try:
+                            if self_path.stat().st_mtime > boot_mtime:
+                                os.execv(sys.executable, [sys.executable] + sys.argv)
+                        except OSError:
+                            pass
+                    if presence_feed:
+                        discovered = presence_feed.find_active_feed()
+                        if discovered and discovered != feed_dir:
+                            feed_dir = discovered
 
                 if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.25):
                     last_expr_check = t
                     expr_state = mcp_server.read_expression()
+                    if default_painting is not None:
+                        if not isinstance(expr_state, dict):
+                            expr_state = {"v": 1, "painting": default_painting, "paintStats": {"paintings": 1, "tokens": 2100}}
+                        elif not expr_state.get("painting"):
+                            expr_state = dict(expr_state, painting=default_painting)
 
                 if feed_dir and feed_dir.is_dir():
                     state = load_feed_state(feed_dir)

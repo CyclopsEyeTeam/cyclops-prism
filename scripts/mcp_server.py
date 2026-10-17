@@ -130,10 +130,22 @@ def write_expression(
     return payload
 
 
-def clear_expression(environ: Optional[Dict[str, str]] = None) -> bool:
-    """Clear Prism's custom expression and return to autonomous state reflection."""
+def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting: bool = False) -> bool:
+    """Clear Prism's custom thought/voice while preserving her permanent painting spot unless clear_painting=True."""
     target = expression_file_path(environ)
     try:
+        if not clear_painting:
+            prev = read_expression(environ)
+            if isinstance(prev, dict) and prev.get("painting"):
+                write_expression(
+                    "",
+                    mood=prev.get("mood"),
+                    effect=None,
+                    glyph=None,
+                    art=[],
+                    environ=environ,
+                )
+                return True
         if target.is_file():
             target.unlink()
         return True
@@ -142,7 +154,7 @@ def clear_expression(environ: Optional[Dict[str, str]] = None) -> bool:
 
 
 def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """Read the active expression if present and not expired."""
+    """Read the active expression; if a thought TTL expired, keep the permanent painting spot intact."""
     target = expression_file_path(environ)
     if not target.is_file() or target.is_symlink():
         return None
@@ -153,6 +165,17 @@ def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[floa
         expires_at = data.get("expiresAt")
         now_ts = time.time() if now is None else now
         if isinstance(expires_at, (int, float)) and now_ts > expires_at:
+            if data.get("painting"):
+                return {
+                    "v": 1,
+                    "thought": "",
+                    "mood": data.get("mood"),
+                    "effect": None,
+                    "glyph": None,
+                    "art": [],
+                    "painting": data.get("painting"),
+                    "paintStats": data.get("paintStats"),
+                }
             return None
         return data
     except (OSError, ValueError, TypeError):
