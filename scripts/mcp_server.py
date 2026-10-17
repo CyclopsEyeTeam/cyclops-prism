@@ -3,7 +3,7 @@
 
 Exposes zero-dependency Model Context Protocol (MCP) tools that allow Prism (or her
 subagents) to project live thoughts, moods, particle animations, custom core glyphs,
-and holographic ASCII/Unicode art directly into her running 20 FPS terminal companion.
+and 24-bit half-block Terminal Art Paintings directly into her running 20 FPS terminal companion.
 
 State is stored in $XDG_STATE_HOME/gemini-prism/expression.json, completely separate
 from the zero-leakage Cyclops Link and Presence Feed files.
@@ -21,6 +21,7 @@ sys.dont_write_bytecode = True
 
 VALID_MOODS = ("aurora", "solar", "nebula", "emerald", "supernova", "zen", "crystalline")
 VALID_EFFECTS = ("starburst", "meteor", "ripple", "pulse", "bloom", "none")
+VALID_SHAPES = ("wide", "square", "tall")
 
 
 def expression_file_path(environ: Optional[Dict[str, str]] = None) -> Path:
@@ -31,7 +32,16 @@ def expression_file_path(environ: Optional[Dict[str, str]] = None) -> Path:
         return Path(override)
     home = env.get("HOME", "/tmp")
     state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
-    return state_home / "gemini-prism" / "expression.json"
+    candidate = state_home / "gemini-prism" / "expression.json"
+    try:
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        if os.access(candidate.parent, os.W_OK):
+            return candidate
+    except OSError:
+        pass
+    fallback = Path("/tmp") / "gemini-prism" / "expression.json"
+    fallback.parent.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 try:
@@ -43,6 +53,23 @@ except ImportError:
         painter = None
 
 
+def _atomic_write_expr(target: Path, payload: Dict[str, Any]) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".expr-", suffix=".tmp", dir=target.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+
+
 def write_expression(
     thought: Optional[str] = None,
     *,
@@ -51,13 +78,13 @@ def write_expression(
     glyph: Optional[str] = None,
     art: Optional[List[str]] = None,
     painting: Optional[Dict[str, Any]] = None,
+    job: Optional[Dict[str, Any]] = None,
     ttl: float = 0.0,
     environ: Optional[Dict[str, str]] = None,
+    save_shared_json: bool = True,
 ) -> Dict[str, Any]:
     """Atomically write an expressive update (and optional painting) to Prism's terminal channel."""
     target = expression_file_path(environ)
-    target.parent.mkdir(parents=True, exist_ok=True)
-
     prev = read_expression(environ) or {}
     now = time.time()
     clean_mood = (
@@ -85,20 +112,29 @@ def write_expression(
     active_painting = prev.get("painting")
     paint_stats = prev.get("paintStats") or {"paintings": 0, "tokens": 0}
     if painting is not None and painter is not None:
-        parsed_p = painter.parse_painting(painting)
+        parsed_p = painter.parse_painting(painting, default_by=str(painting.get("by") or "prism"))
         if parsed_p:
-            parsed_p["at"] = now
+            if not painting.get("at"):
+                parsed_p["at"] = now
             active_painting = parsed_p
             paint_stats = {
                 "paintings": int(paint_stats.get("paintings", 0)) + 1,
                 "tokens": int(paint_stats.get("tokens", 0)) + int(parsed_p.get("tokens") or 2100),
             }
+            # §1 Always write Prism's paintings to prism-paintings/NN-title.json so Spark can read them
+            if save_shared_json and parsed_p.get("by", "prism") == "prism":
+                try:
+                    painter.save_painting_json(parsed_p)
+                except Exception:
+                    pass
 
     thought_val = (
         str(thought).strip()[:240]
         if thought is not None
         else str(prev.get("thought") or "")
     )
+
+    active_job = prev.get("job") if job is None else (job if job.get("active") else None)
 
     payload = {
         "v": 1,
@@ -109,25 +145,41 @@ def write_expression(
         "art": clean_art,
         "painting": active_painting,
         "paintStats": paint_stats,
+        "job": active_job,
         "updatedAt": now,
         "expiresAt": (now + ttl_val) if ttl_val > 0 else None,
     }
 
-    fd, tmp_path = tempfile.mkstemp(prefix=".expr-", suffix=".tmp", dir=target.parent)
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, target)
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except FileNotFoundError:
-            pass
-
+    _atomic_write_expr(target, payload)
     return payload
+
+
+def update_job_progress(
+    label: str,
+    fraction: float,
+    *,
+    done: bool = False,
+    environ: Optional[Dict[str, str]] = None,
+) -> None:
+    """Update background job progress (convert / roll) in expression.json so any live pane redraws it."""
+    target = expression_file_path(environ)
+    prev = read_expression(environ) or {"v": 1}
+    now = time.time()
+    prev["job"] = (
+        None
+        if done
+        else {
+            "active": True,
+            "label": str(label)[:64],
+            "fraction": max(0.0, min(1.0, float(fraction))),
+            "updatedAt": now,
+        }
+    )
+    prev["updatedAt"] = now
+    try:
+        _atomic_write_expr(target, prev)
+    except Exception:
+        pass
 
 
 def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting: bool = False) -> bool:
@@ -154,32 +206,57 @@ def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting
 
 
 def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """Read the active expression; if a thought TTL expired, keep the permanent painting spot intact."""
-    target = expression_file_path(environ)
-    if not target.is_file() or target.is_symlink():
+    """Read the active expression; if a thought TTL expired, keep the permanent painting spot intact.
+    Checks both primary state_home and /tmp/gemini-prism fallback (when not overridden) and picks the freshest.
+    """
+    env = os.environ if environ is None else environ
+    override = env.get("PRISM_EXPRESSION_FILE")
+    if override:
+        candidates = [Path(override)]
+    else:
+        home = env.get("HOME", "/tmp")
+        state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
+        candidates = [
+            state_home / "gemini-prism" / "expression.json",
+            Path("/tmp") / "gemini-prism" / "expression.json",
+        ]
+
+    best_data: Optional[Dict[str, Any]] = None
+    best_ts = -1.0
+    for target in candidates:
+        if not target.is_file() or target.is_symlink():
+            continue
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or data.get("v") != 1:
+                continue
+            upd = float(data.get("updatedAt") or 0.0)
+            if upd > best_ts:
+                best_ts = upd
+                best_data = data
+        except (OSError, ValueError, TypeError):
+            continue
+
+    if best_data is None:
         return None
-    try:
-        data = json.loads(target.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or data.get("v") != 1:
-            return None
-        expires_at = data.get("expiresAt")
-        now_ts = time.time() if now is None else now
-        if isinstance(expires_at, (int, float)) and now_ts > expires_at:
-            if data.get("painting"):
-                return {
-                    "v": 1,
-                    "thought": "",
-                    "mood": data.get("mood"),
-                    "effect": None,
-                    "glyph": None,
-                    "art": [],
-                    "painting": data.get("painting"),
-                    "paintStats": data.get("paintStats"),
-                }
-            return None
-        return data
-    except (OSError, ValueError, TypeError):
+
+    expires_at = best_data.get("expiresAt")
+    now_ts = time.time() if now is None else now
+    if isinstance(expires_at, (int, float)) and now_ts > expires_at:
+        if best_data.get("painting"):
+            return {
+                "v": 1,
+                "thought": "",
+                "mood": best_data.get("mood"),
+                "effect": None,
+                "glyph": None,
+                "art": [],
+                "painting": best_data.get("painting"),
+                "paintStats": best_data.get("paintStats"),
+                "job": best_data.get("job"),
+            }
         return None
+    return best_data
 
 
 MCP_TOOLS = [
@@ -227,8 +304,8 @@ MCP_TOOLS = [
         "name": "prism_paint",
         "description": (
             "Paint a 24-bit truecolor half-block ('▀') artwork below Prism in her terminal companion "
-            "using the Cyclops/Spark mark vocabulary (fill, glow, line, curve, dot, ring, arc, spray) "
-            "or a curated painting preset, with optional SVG export to prism-paintings/."
+            "using the shared Spark & Prism mark vocabulary (fill, glow, line, curve, dot, ring, arc, spray) "
+            "and write it to prism-paintings/NN-title.json so Spark and Prism share paintings in both directions."
         ),
         "inputSchema": {
             "type": "object",
@@ -251,17 +328,26 @@ MCP_TOOLS = [
                     "enum": ["none", "x", "y", "xy"],
                     "description": "Optional symmetry reflection for all marks.",
                 },
+                "shape": {
+                    "type": "string",
+                    "enum": list(VALID_SHAPES),
+                    "description": "Canvas aspect shape: 'wide' (2:1, default), 'square' (1:1), or 'tall' (1:2).",
+                },
+                "opening": {
+                    "type": "boolean",
+                    "description": "True if this is the session's opening painting.",
+                },
                 "marks": {
                     "type": "array",
                     "items": {"type": "object"},
                     "description": (
                         "Array of mark objects on a [0..1] canvas: "
-                        "fill ({k:'fill',pts:[[x,y],...],c:'#rrggbb',c2:'#rrggbb',grad:0.25,a:0.9}), "
-                        "glow ({k:'glow',x:0.5,y:0.5,r:0.3,c:'#rrggbb',a:0.7}), "
-                        "line/curve ({k:'line'|'curve',pts:[[x,y],...],w:0.02,c:'#rrggbb',c2:'#rrggbb',a:0.9}), "
-                        "dot ({k:'dot',x:0.5,y:0.5,r:0.05,c:'#rrggbb',a:1}), "
-                        "ring/arc ({k:'ring'|'arc',x:0.5,y:0.5,r:0.15,w:0.02,a0:0,a1:0.5,c:'#rrggbb',a:0.8}), "
-                        "spray ({k:'spray',x:0.5,y:0.4,r:0.3,n:45,s:0.014,c:'#rrggbb',a:0.7})."
+                        "fill ({k:'fill',pts:[[x,y],...],c:[r,g,b],c2:[r,g,b],grad:0.25,a:0.9}), "
+                        "glow ({k:'glow',x:0.5,y:0.5,r:0.3,c:[r,g,b],a:0.7}), "
+                        "line/curve ({k:'line'|'curve',pts:[[x,y],...],w:0.02,c:[r,g,b],c2:[r,g,b],a:0.9}), "
+                        "dot ({k:'dot',x:0.5,y:0.5,r:0.05,c:[r,g,b],a:1}), "
+                        "ring/arc ({k:'ring'|'arc',x:0.5,y:0.5,r:0.15,w:0.02,a0:0,a1:0.5,c:[r,g,b],a:0.8}), "
+                        "spray ({k:'spray',x:0.5,y:0.4,r:0.3,n:45,s:0.014,c:[r,g,b],a:0.7})."
                     ),
                 },
                 "preset": {
@@ -270,7 +356,12 @@ MCP_TOOLS = [
                 },
                 "convert": {
                     "type": "boolean",
-                    "description": "If true, also export a 1920x1100 bloom SVG + index.html to prism-paintings/.",
+                    "description": "If true, also export SVG + PNG + index.html to prism-paintings/.",
+                },
+                "way": {
+                    "type": "string",
+                    "enum": ["truest", "faithful", "refined", "interpretive"],
+                    "description": "Convert way when convert=true (default 'truest').",
                 },
             },
         },
@@ -292,7 +383,6 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     req_id = req.get("id")
     params = req.get("params") or {}
 
-    # Notifications (no id) require no response
     if req_id is None:
         return None
 
@@ -304,7 +394,7 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "result": {
                 "protocolVersion": client_Version,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cyclops-prism-express", "version": "1.4.0"},
+                "serverInfo": {"name": "cyclops-prism-express", "version": "1.5.0"},
             },
         }
 
@@ -352,6 +442,9 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     "thought": args.get("thought") or "",
                     "mood": args.get("mood") or "aurora",
                     "mirror": args.get("mirror"),
+                    "shape": args.get("shape") or "wide",
+                    "opening": bool(args.get("opening")),
+                    "by": "prism",
                     "marks": args.get("marks"),
                     "tokens": args.get("tokens", 2100),
                     "model": args.get("model", "prism-painter"),
@@ -365,21 +458,26 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     paint_obj["thought"] = str(args["thought"])[:160]
                 if args.get("mood"):
                     paint_obj["mood"] = str(args["mood"])
+                if args.get("shape") in VALID_SHAPES:
+                    paint_obj["shape"] = str(args["shape"])
+                if args.get("opening"):
+                    paint_obj["opening"] = True
             if not paint_obj:
                 return {
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "error": {"code": -32602, "message": "Invalid painting marks"},
                 }
-            payload = write_expression(
+            write_expression(
                 thought=args.get("thought") or paint_obj.get("thought") or None,
                 mood=args.get("mood") or paint_obj.get("mood"),
                 painting=paint_obj,
             )
             svg_msg = ""
             if args.get("convert"):
-                svg_path = painter.save_painting_to_gallery(paint_obj)
-                svg_msg = f" (saved SVG to {svg_path})"
+                way = str(args.get("way") or "truest")
+                conv_res = painter.convert_painting(paint_obj, way=way)
+                svg_msg = f" (exported {way} SVG & PNG to {conv_res['svg']})"
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
@@ -426,7 +524,6 @@ def serve_stdio() -> None:
         if stripped.lower().startswith(b"content-length:"):
             use_content_length = True
             length = int(stripped.split(b":", 1)[1].strip())
-            # Consume remaining headers until blank line
             while True:
                 hdr = sys.stdin.buffer.readline()
                 if not hdr or hdr.strip() == b"":

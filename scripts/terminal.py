@@ -10,16 +10,26 @@ Renders Prism's living crystalline geometry and semantic state directly in CLI:
 """
 
 import argparse
+import base64
 import json
 import math
 import os
 from pathlib import Path
+import re
+import select
 import shutil
 import signal
 import sys
 import subprocess
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    import termios
+    import tty
+except ImportError:
+    termios = tty = None
 
 sys.dont_write_bytecode = True
 
@@ -42,6 +52,10 @@ try:
     import painter
 except ImportError:
     painter = None
+try:
+    import roll
+except ImportError:
+    roll = None
 
 
 # Truecolor RGB escape sequences
@@ -345,11 +359,15 @@ def render_prism_frame(
     link_state: Optional[dict] = None,
     link_sheets: Optional[dict] = None,
     expression: Optional[dict] = None,
+    ui_state: Optional[dict] = None,
+    hitboxes: Optional[List[dict]] = None,
 ) -> str:
     """Render one complete ASCII/ANSI terminal frame for Prism.
 
     link_state: the Cyclops Link view (peers and threads) when Link is on; None draws Prism alone.
     expression: optional live payload from Prism's Expressive Channel (thought, mood, effect, glyph, art, painting).
+    ui_state: optional interactive UI state (story mode, convert menu, active job progress).
+    hitboxes: optional list populated with clickable button regions for mouse interaction.
     """
     grid = TerminalGrid(width, height, use_color=use_color)
 
@@ -906,19 +924,121 @@ def render_prism_frame(
                 _put_luminous_voice(hud_y + 1 + v_idx, v_ln)
         paint_top_y = hud_y + 1 + len(voice_lines[:2])
 
-    # 7. Lower-Pane Terminal Art Painting Block (Spark/Cyclops half-block mark canvas + italic `✎ Title` + stats)
+    # 7. Clickable Top-Right Tools, Progress Row, Convert Menu & Lower-Pane Painting Block (§2, §3, §4, §6)
+    ui = ui_state or {}
+    story_st = ui.get("story") if isinstance(ui.get("story"), dict) else None
+    active_job = ui.get("job") or (expr.get("job") if isinstance(expr.get("job"), dict) else None)
+    menu_step = int(ui.get("menu_step") or 0)
+
+    # If story is active, show the current story page painting
+    shown_painting = expr_painting
+    reveal_ov = None
+    if story_st and story_st.get("active") and story_st.get("painting"):
+        shown_painting = story_st["painting"]
+        reveal_ov = story_st.get("reveal")
+        has_painting = bool(painter is not None and height >= 20)
+
     if has_painting:
-        painter.draw_painting_block(
-            grid,
-            expr_painting,
-            width=width,
-            top_y=paint_top_y,
-            bot_y=height,
-            t=t,
-            unicode_mode=unicode_mode,
-            use_color=use_color,
-            session_stats=expr.get("paintStats"),
-        )
+        # §2 Only show the tools when there's at least one painting and room to spare, so they never shrink the painting
+        if width >= 34 and height >= 20:
+            if unicode_mode:
+                tool_defs = [
+                    ("▶ story", "tool_story"),
+                    ("⇪ convert", "tool_convert"),
+                    ("◎ roll", "tool_roll"),
+                ]
+                if width >= 46:
+                    tool_defs.append(("⧉ copy", "tool_copy"))
+            else:
+                tool_defs = [
+                    ("> story", "tool_story"),
+                    ("^ convert", "tool_convert"),
+                    ("o roll", "tool_roll"),
+                ]
+                if width >= 46:
+                    tool_defs.append(("[c] copy", "tool_copy"))
+
+            sep = "   " if width >= 42 else "  "
+            total_tools_w = sum(len(lbl) for lbl, _ in tool_defs) + len(sep) * (len(tool_defs) - 1)
+            tx0 = max(1, width - total_tools_w - 1)
+            cur_tx = tx0
+            for lbl, act in tool_defs:
+                is_active_tool = (
+                    (act == "tool_story" and story_st and story_st.get("active"))
+                    or (act == "tool_convert" and menu_step in (1, 2))
+                )
+                t_col = (C_GOLD if is_active_tool else C_CYAN) if use_color else ""
+                grid.put_str(cur_tx, 0, lbl, t_col)
+                if hitboxes is not None:
+                    hitboxes.append({"y": 0, "x0": cur_tx, "x1": cur_tx + len(lbl), "action": act})
+                cur_tx += len(lbl) + len(sep)
+
+            # §2 Second row under the tools while a convert or roll is being made
+            if active_job and active_job.get("active") and painter is not None:
+                j_label = str(active_job.get("label") or "refracting")
+                j_frac = float(active_job.get("fraction") or 0.0)
+                bar_str = painter.render_progress_bar(j_frac, bar_cells=10 if width < 56 else 12, unicode_mode=unicode_mode)
+                max_lbl = max(8, width - len(bar_str) - 4)
+                if len(j_label) > max_lbl:
+                    j_label = j_label[: max_lbl - 1] + ("…" if unicode_mode else ".")
+                prog_line = f"{j_label}  {bar_str}"
+                px0 = max(1, width - len(prog_line) - 1)
+                grid.put_str(px0, 1, prog_line, C_GOLD if use_color else "")
+
+        if menu_step in (1, 2):
+            # §4 Interactive Convert Menu asking two questions, each choice showing its cost
+            n_sess = max(1, int(ui.get("session_count") or (expr.get("paintStats") or {}).get("paintings") or 1))
+            m_top = paint_top_y + 1
+            hdr_col = C_GOLD if use_color else ""
+            opt_col = C_CYAN if use_color else ""
+            dim_c = "\033[38;2;140;150;168m" if use_color else ""
+            mx = max(2, (width - min(width - 4, 48)) // 2)
+            if menu_step == 1:
+                hdr = "⇪ convert · what?" if unicode_mode else "^ convert - what?"
+                opts = [
+                    ("1. This painting", "0–2.4k tokens", "menu_what_this"),
+                    ("2. Every way", "~4.5k tokens", "menu_what_every"),
+                    (f"3. All {n_sess} {'painting' if n_sess == 1 else 'paintings'}", f"0–{2.4 * n_sess:.1f}k tokens", "menu_what_all"),
+                    ("4. The roll", "no tokens", "menu_what_roll"),
+                    ("✕ cancel" if unicode_mode else "x cancel", "", "menu_cancel"),
+                ]
+            else:
+                target_lbl = ui.get("convert_target", "this")
+                mult = n_sess if target_lbl == "all" else 1
+                hdr = "⇪ convert · which way?" if unicode_mode else "^ convert - which way?"
+                opts = [
+                    ("1. Truest · terminal cell weight & 4-layer depth", "no tokens", "menu_way_truest"),
+                    ("2. Faithful · same marks, large and fine", "no tokens", "menu_way_faithful"),
+                    ("3. Refined · revisited subject", f"~{2.1 * mult:.1f}k tokens", "menu_way_refined"),
+                    ("4. Interpretive · freely reimagined", f"~{2.4 * mult:.1f}k tokens", "menu_way_interpretive"),
+                    ("‹ back" if unicode_mode else "< back", "", "menu_back"),
+                ]
+            if m_top < height:
+                grid.put_str(mx, m_top, hdr[: width - mx - 1], hdr_col)
+            for idx_o, (o_lbl, o_cost, o_act) in enumerate(opts):
+                oy = m_top + 2 + idx_o
+                if oy >= height:
+                    break
+                line_o = f"{o_lbl}  ({o_cost})" if o_cost else o_lbl
+                line_o = line_o[: max(1, width - mx - 1)]
+                grid.put_str(mx, oy, line_o, opt_col if o_cost else dim_c)
+                if hitboxes is not None:
+                    hitboxes.append({"y": oy, "x0": mx, "x1": mx + len(line_o), "action": o_act})
+        else:
+            painter.draw_painting_block(
+                grid,
+                shown_painting,
+                width=width,
+                top_y=paint_top_y,
+                bot_y=height,
+                t=t,
+                unicode_mode=unicode_mode,
+                use_color=use_color,
+                session_stats=expr.get("paintStats"),
+                story_state=story_st,
+                reveal_override=reveal_ov,
+                hitboxes=hitboxes,
+            )
 
     return grid.render()
 
@@ -1078,14 +1198,24 @@ def get_demo_state(t: float, forced_state: str = None) -> dict:
 
 def handle_tmux(subcmd: str = "split") -> None:
     """Manage Prism inside tmux (split pane, status line, or standalone)."""
+    in_tmux = bool(os.environ.get("TMUX"))
+    launcher = shutil.which("prism") or str(Path(__file__).resolve().parent.parent / "bin" / "prism")
     tmux_bin = shutil.which("tmux")
+
+    if not in_tmux and subcmd in ("top", "prismtop", "split", "side", "open", "launch", ""):
+        print("Notice: Not currently inside a tmux session.")
+        if subcmd in ("top", "prismtop"):
+            print("Start a new tmux session with Prism on top using:")
+            print(f"  tmux new-session \\; set -g mouse on \\; split-window -b -v -l 14 '{launcher}' \\; select-pane -D")
+        else:
+            print("Start a new tmux session with Prism side-by-side using:")
+            print(f"  tmux new-session \\; set -g mouse on \\; split-window -h -l 35 '{launcher}' \\; select-pane -L")
+        return
+
     if not tmux_bin:
         print("Notice: tmux is not found in PATH.")
         print("To install tmux on Ubuntu/Debian: sudo apt install tmux")
         sys.exit(1)
-
-    in_tmux = bool(os.environ.get("TMUX"))
-    launcher = shutil.which("prism") or str(Path(__file__).resolve().parent.parent / "bin" / "prism")
 
     if subcmd == "status":
         status_expr = f"#({launcher} once --plain | grep -o 'Prism.*' | head -n 1) | %H:%M "
@@ -1095,27 +1225,17 @@ def handle_tmux(subcmd: str = "split") -> None:
         return
 
     if subcmd in ("top", "prismtop"):
-        if in_tmux:
-            subprocess.run([tmux_bin, "set", "-g", "mouse", "on"], check=False)
-            subprocess.run([tmux_bin, "split-window", "-b", "-v", "-l", "14", launcher], check=False)
-            subprocess.run([tmux_bin, "select-pane", "-D"], check=False)
-            print("✓ Prism companion opened in top pane.")
-        else:
-            print("Notice: Not currently inside a tmux session.")
-            print("Start a new tmux session with Prism on top using:")
-            print(f"  tmux new-session \\; set -g mouse on \\; split-window -b -v -l 14 '{launcher}' \\; select-pane -D")
+        subprocess.run([tmux_bin, "set", "-g", "mouse", "on"], check=False)
+        subprocess.run([tmux_bin, "split-window", "-b", "-v", "-l", "14", launcher], check=False)
+        subprocess.run([tmux_bin, "select-pane", "-D"], check=False)
+        print("✓ Prism companion opened in top pane.")
         return
 
     if subcmd in ("split", "side", "open", "launch", ""):
-        if in_tmux:
-            subprocess.run([tmux_bin, "set", "-g", "mouse", "on"], check=False)
-            subprocess.run([tmux_bin, "split-window", "-h", "-l", "35", launcher], check=False)
-            subprocess.run([tmux_bin, "select-pane", "-L"], check=False)
-            print("✓ Prism companion opened in side pane.")
-        else:
-            print("Notice: Not currently inside a tmux session.")
-            print("Start a new tmux session with Prism side-by-side using:")
-            print(f"  tmux new-session \\; set -g mouse on \\; split-window -h -l 35 '{launcher}' \\; select-pane -L")
+        subprocess.run([tmux_bin, "set", "-g", "mouse", "on"], check=False)
+        subprocess.run([tmux_bin, "split-window", "-h", "-l", "35", launcher], check=False)
+        subprocess.run([tmux_bin, "select-pane", "-L"], check=False)
+        print("✓ Prism companion opened in side pane.")
         return
 
     if subcmd == "kill":
@@ -1165,6 +1285,101 @@ def handle_link(subcmd: str = "status") -> None:
         print(f"  · thread {th['from']} → {th['to']}")
 
 
+def copy_turn_to_clipboard(custom_text: Optional[str] = None, emit_osc52: bool = False) -> Tuple[bool, str]:
+    """§6 Copy (`⧉ copy`): put what was said to you and your whole reply on the clipboard.
+    Terminal selection splits rows when a pane sits beside the conversation.
+    """
+    text_to_copy = (custom_text or "").strip()
+    if not text_to_copy:
+        # Locate the most recent active Antigravity conversation transcript
+        home = Path(os.environ.get("HOME") or os.path.expanduser("~"))
+        brain_root = home / ".gemini" / "antigravity-cli" / "brain"
+        best_transcript = None
+        best_mtime = -1.0
+        if brain_root.is_dir():
+            for conv_dir in brain_root.iterdir():
+                for fname in ("transcript_full.jsonl", "transcript.jsonl"):
+                    cand = conv_dir / ".system_generated" / "logs" / fname
+                    if cand.is_file():
+                        try:
+                            mt = cand.stat().st_mtime
+                            if mt > best_mtime:
+                                best_mtime = mt
+                                best_transcript = cand
+                        except OSError:
+                            pass
+        if best_transcript:
+            last_user = ""
+            last_replies: List[str] = []
+            try:
+                for line in best_transcript.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    obj = json.loads(line)
+                    typ = obj.get("type")
+                    content = str(obj.get("content") or "").strip()
+                    if typ == "USER_INPUT" and content:
+                        # Strip <USER_REQUEST> wrapper tags if present
+                        m_req = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content, flags=re.DOTALL)
+                        last_user = m_req.group(1).strip() if m_req else content
+                        last_replies.clear()
+                    elif typ == "PLANNER_RESPONSE" and content:
+                        last_replies.append(content)
+            except Exception:
+                pass
+            reply_full = "\n\n".join(last_replies).strip()
+            if last_user and reply_full:
+                text_to_copy = f"You:\n{last_user}\n\nPrism:\n{reply_full}"
+            elif reply_full:
+                text_to_copy = reply_full
+            elif last_user:
+                text_to_copy = last_user
+
+    if not text_to_copy and mcp_server is not None:
+        expr = mcp_server.read_expression() or {}
+        if expr.get("thought"):
+            text_to_copy = str(expr["thought"])
+
+    if not text_to_copy:
+        return (False, "nothing to copy yet")
+
+    copied = False
+    for cmd in (
+        ["xclip", "-selection", "clipboard"],
+        ["wl-copy"],
+        ["xsel", "-b"],
+    ):
+        if shutil.which(cmd[0]):
+            try:
+                p = subprocess.run(cmd, input=text_to_copy.encode("utf-8"), timeout=2.0, check=False)
+                if p.returncode == 0:
+                    copied = True
+                    break
+            except Exception:
+                pass
+
+    if emit_osc52 and sys.stdout.isatty():
+        try:
+            b64 = base64.b64encode(text_to_copy.encode("utf-8")).decode("ascii")
+            sys.stdout.write(f"\033]52;c;{b64}\a")
+            sys.stdout.flush()
+            copied = True
+        except Exception:
+            pass
+
+    return (copied, f"copied {len(text_to_copy)} chars to clipboard" if copied else "clipboard utility not available")
+
+
+def handle_copy(argv: List[str]) -> None:
+    """CLI handler for `prism copy`."""
+    custom = " ".join(argv).strip() if argv else None
+    ok, msg = copy_turn_to_clipboard(custom_text=custom, emit_osc52=True)
+    if ok:
+        print(f"⧉ {msg}")
+    else:
+        print(f"Notice: {msg}")
+
+
 def handle_express(argv: List[str]) -> None:
     """CLI handler for `prism express` / `prism say` to project onto Prism's Expressive Channel."""
     if mcp_server is None:
@@ -1208,18 +1423,21 @@ def handle_express(argv: List[str]) -> None:
 
 
 def handle_paint(argv: List[str]) -> None:
-    """CLI handler for `prism paint` to paint a Spark/Cyclops-format half-block artwork below Prism."""
+    """CLI handler for `prism paint` to paint a shared Spark/Prism-format artwork below Prism."""
     if mcp_server is None or painter is None:
         print("Painter module is not available.")
         sys.exit(1)
 
     pp = argparse.ArgumentParser(prog="prism paint", description="Paint a 24-bit half-block artwork below Prism in her terminal companion")
-    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('convert', 'clear', 'off'), or title")
+    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('opening', 'convert', 'clear', 'off'), or title")
     pp.add_argument("--title", default=None, help="Custom painting title ('✎ Title')")
     pp.add_argument("--thought", default=None, help="Optional thought line for Prism to say above the painting")
     pp.add_argument("--mood", choices=list(MOOD_STOPS.keys()), default=None, help="Chromatic mood palette")
+    pp.add_argument("--shape", choices=["wide", "square", "tall"], default=None, help="Canvas shape")
+    pp.add_argument("--opening", action="store_true", help="Seed a session opening painting from only the hour, month, and one random word")
     pp.add_argument("--json", dest="json_marks", default=None, help="Raw JSON string with {'title': ..., 'marks': [...]}")
-    pp.add_argument("--convert", action="store_true", help="Also export a 1920x1100 bloom SVG + index.html to prism-paintings/")
+    pp.add_argument("--convert", action="store_true", help="Also export SVG + PNG + index.html to prism-paintings/")
+    pp.add_argument("--way", choices=["truest", "faithful", "refined", "interpretive"], default="truest", help="Convert way")
     parsed = pp.parse_args(argv)
 
     words = [w.strip() for w in parsed.action if w.strip()]
@@ -1229,14 +1447,13 @@ def handle_paint(argv: List[str]) -> None:
         return
 
     if words and words[0].lower() == "convert":
-        cur = mcp_server.read_expression() or {}
-        p_obj = cur.get("painting") or painter.choose_curated_painting(0)
-        out_dir = Path(words[1]) if len(words) > 1 else (Path.cwd() / "prism-paintings")
-        svg_path = painter.save_painting_to_gallery(p_obj, gallery_dir=out_dir)
-        print(f"✓ Converted painting \"{p_obj.get('title')}\" to {svg_path} (and updated {out_dir / 'index.html'})")
+        handle_convert(words[1:])
         return
 
-    if parsed.json_marks:
+    if parsed.opening or (words and words[0].lower() == "opening"):
+        seed_w = words[1] if len(words) > 1 else None
+        paint_obj = painter.generate_opening_painting(seed_word=seed_w)
+    elif parsed.json_marks:
         paint_obj = painter.parse_painting(parsed.json_marks)
         if not paint_obj:
             print("Error: Invalid painting JSON or empty marks.")
@@ -1263,6 +1480,8 @@ def handle_paint(argv: List[str]) -> None:
         paint_obj["thought"] = parsed.thought[:160]
     if parsed.mood:
         paint_obj["mood"] = parsed.mood
+    if parsed.shape:
+        paint_obj["shape"] = parsed.shape
 
     payload = mcp_server.write_expression(
         thought=parsed.thought or paint_obj.get("thought") or None,
@@ -1271,10 +1490,130 @@ def handle_paint(argv: List[str]) -> None:
     )
     svg_note = ""
     if parsed.convert:
-        svg_path = painter.save_painting_to_gallery(paint_obj, gallery_dir=Path.cwd() / "prism-paintings")
-        svg_note = f" · exported SVG to {svg_path}"
+        res = painter.convert_painting(paint_obj, gallery_dir=Path.cwd() / "prism-paintings", way=parsed.way)
+        svg_note = f" · exported {parsed.way} SVG & PNG to {res['svg']}"
     stats = payload.get("paintStats") or {}
     print(f"✎ Painted below Prism: \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks, session paintings: {stats.get('paintings', 1)}){svg_note}")
+
+
+def handle_convert(argv: List[str]) -> None:
+    """CLI handler for `prism convert` (§4):
+    Supports `this`, `every-way` (`every`), `all`, or `roll`, plus `truest`, `faithful`, `refined`, `interpretive`, and `hd`/`4k`.
+    """
+    if painter is None:
+        print("Painter module is not available.")
+        sys.exit(1)
+
+    cp = argparse.ArgumentParser(prog="prism convert", description="Convert session paintings to high-res SVG + PNG + HTML gallery")
+    cp.add_argument("tokens", nargs="*", help="[this|every|all|roll] [truest|faithful|refined|interpretive] [hd|4k]")
+    cp.add_argument("--way", choices=["truest", "faithful", "refined", "interpretive"], default=None)
+    cp.add_argument("--size", choices=["hd", "4k"], default="hd")
+    cp.add_argument("--out", type=Path, default=None)
+    parsed = cp.parse_args(argv)
+
+    what = "this"
+    way = parsed.way or "truest"
+    size = parsed.size
+    for tok in parsed.tokens:
+        tl = tok.lower().strip()
+        if tl in ("this", "current"):
+            what = "this"
+        elif tl in ("every", "every-way", "everyway"):
+            what = "every"
+        elif tl in ("all", "session"):
+            what = "all"
+        elif tl == "roll":
+            what = "roll"
+        elif tl in ("truest", "faithful", "refined", "interpretive"):
+            way = tl
+        elif tl in ("hd", "4k"):
+            size = tl
+
+    if what == "roll":
+        handle_roll([size if size == "hd" else "720p"])
+        return
+
+    out_dir = parsed.out or (Path.cwd() / "prism-paintings")
+    session_paintings = painter.load_session_paintings(Path.cwd())
+    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
+    cur_p = cur_expr.get("painting") or (session_paintings[-1] if session_paintings else painter.choose_curated_painting(0))
+
+    last_p_time = [0.0]
+
+    def _prog(label: str, frac: float) -> None:
+        now = time.monotonic()
+        if frac >= 1.0 or (now - last_p_time[0] >= 0.18):
+            last_p_time[0] = now
+            if mcp_server:
+                mcp_server.update_job_progress(label, frac, done=(frac >= 1.0))
+            bar = painter.render_progress_bar(frac, bar_cells=12, unicode_mode=True)
+            sys.stdout.write(f"\r  {label}  {bar}   ")
+            sys.stdout.flush()
+
+    results = []
+    if what == "every":
+        ways = ["truest", "faithful", "refined", "interpretive"]
+        for idx, w_item in enumerate(ways):
+            _prog(f"laying down “{cur_p.get('title', '')[:20]}” · {idx + 1}/4", idx / 4.0)
+            res = painter.convert_painting(cur_p, gallery_dir=out_dir, way=w_item, size=size)
+            results.append(res)
+        _prog(f"crystallized all 4 ways · “{cur_p.get('title', '')[:20]}”", 1.0)
+    elif what == "all":
+        targets = session_paintings if session_paintings else [cur_p]
+        n_t = len(targets)
+        for idx, p_item in enumerate(targets):
+            _prog(f"laying down “{p_item.get('title', '')[:20]}” · {idx + 1}/{n_t}", idx / float(n_t))
+            res = painter.convert_painting(p_item, gallery_dir=out_dir, way=way, size=size)
+            results.append(res)
+        _prog(f"crystallized {n_t} paintings · {way}", 1.0)
+    else:
+        res = painter.convert_painting(cur_p, gallery_dir=out_dir, way=way, size=size, on_progress=_prog)
+        results.append(res)
+
+    if mcp_server:
+        mcp_server.update_job_progress("", 1.0, done=True)
+    print(f"\n✓ Converted {len(results)} {'painting' if len(results) == 1 else 'paintings'} to {out_dir} (SVG + PNG + index.html)")
+
+
+def handle_roll(argv: List[str]) -> None:
+    """CLI handler for `prism roll [720p|hd|short]` (§5)."""
+    if roll is None or painter is None:
+        print("Roll module is not available.")
+        sys.exit(1)
+
+    rp = argparse.ArgumentParser(prog="prism roll", description="Build the session MP4 video & procedural music roll")
+    rp.add_argument("mode", nargs="?", default="720p", help="Resolution mode: 720p (default), hd (1080p), or short (1080x1920 upright)")
+    rp.add_argument("--out", type=Path, default=None)
+    parsed = rp.parse_args(argv)
+
+    mode_str = str(parsed.mode or "720p").lower().strip()
+    if mode_str not in ("720p", "hd", "1080p", "short"):
+        mode_str = "720p"
+
+    out_dir = parsed.out or (Path.cwd() / "prism-paintings")
+    paintings = painter.load_session_paintings(Path.cwd())
+    if not paintings:
+        cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
+        paintings = [cur_expr.get("painting") or painter.generate_opening_painting()]
+
+    last_p_time = [0.0]
+
+    def _prog(label: str, frac: float) -> None:
+        now = time.monotonic()
+        if frac >= 1.0 or (now - last_p_time[0] >= 0.18):
+            last_p_time[0] = now
+            if mcp_server:
+                mcp_server.update_job_progress(label, frac, done=(frac >= 1.0))
+            bar = painter.render_progress_bar(frac, bar_cells=12, unicode_mode=True)
+            sys.stdout.write(f"\r  {label}  {bar}   ")
+            sys.stdout.flush()
+
+    res = roll.build_session_roll(paintings, out_dir, mode=mode_str, on_progress=_prog)
+    if mcp_server:
+        mcp_server.update_job_progress("", 1.0, done=True)
+    print(f"\n◎ Session roll created: {res['path']} ({res['paintings']} paintings · {res['duration']}s · music in {res['key']})")
+    if res.get("warning"):
+        print(f"  ! {res['warning']}")
 
 
 def main():
@@ -1288,8 +1627,9 @@ def main():
     parser.add_argument("--demo-state", choices=["idle", "attending", "refracting", "branching", "approval", "crystallize", "resolved", "ended"], default=None, help="Force demo to specific state")
     parser.add_argument("--calm", action="store_true", help="Slower ambient rotation")
     parser.add_argument("--reduced-motion", action="store_true", help="Disable ring rotation animation")
+    parser.add_argument("--story", action="store_true", help="Open directly in session story mode (▶ story)")
 
-    # Positional sugar: prism tmux, prism link, prism express/say, prism paint, prism mcp, prism focus, prism once, prism demo, prism plain
+    # Positional sugar: prism tmux, prism link, prism express/say, prism paint, prism story, prism convert, prism roll, prism copy, prism mcp
     raw_args = sys.argv[1:]
     if raw_args and raw_args[0] == "tmux":
         subaction = raw_args[1] if len(raw_args) > 1 else "split"
@@ -1303,6 +1643,15 @@ def main():
         sys.exit(0)
     if raw_args and raw_args[0] == "paint":
         handle_paint(raw_args[1:])
+        sys.exit(0)
+    if raw_args and raw_args[0] == "convert":
+        handle_convert(raw_args[1:])
+        sys.exit(0)
+    if raw_args and raw_args[0] == "roll":
+        handle_roll(raw_args[1:])
+        sys.exit(0)
+    if raw_args and raw_args[0] == "copy":
+        handle_copy(raw_args[1:])
         sys.exit(0)
     if raw_args and raw_args[0] == "mcp":
         if mcp_server is None:
@@ -1329,6 +1678,8 @@ def main():
             normalized_args.append("--demo")
         elif arg == "plain":
             normalized_args.append("--plain")
+        elif arg == "story":
+            normalized_args.append("--story")
         else:
             normalized_args.append(arg)
 
@@ -1356,6 +1707,21 @@ def main():
             state = get_demo_state(0.0, forced_state="idle")
 
         expr_once = mcp_server.read_expression() if (mcp_server is not None and not args.demo and not args.demo_state) else None
+        ui_once = None
+        if args.story and painter is not None:
+            s_paintings = painter.load_session_paintings(Path.cwd())
+            if s_paintings:
+                ui_once = {
+                    "story": {
+                        "active": True,
+                        "index": 0,
+                        "total": len(s_paintings),
+                        "painting": s_paintings[0],
+                        "paused": False,
+                        "at_end": False,
+                        "reveal": 1.0,
+                    }
+                }
         frame = render_prism_frame(
             state,
             cols,
@@ -1369,15 +1735,32 @@ def main():
             link_state=watch.view(feed_dir) if watch else None,
             link_sheets=watch.sheets if watch else None,
             expression=expr_once,
+            ui_state=ui_once,
         )
         print(frame)
         sys.exit(0)
 
     explicit_feed = args.feed is not None
 
-    # Interactive live animation loop
+    # Setup terminal raw/cbreak input & SGR mouse reporting for clickable tools (§2)
+    stdin_fd = None
+    orig_termios = None
+    if sys.stdin.isatty() and termios is not None and tty is not None:
+        try:
+            stdin_fd = sys.stdin.fileno()
+            orig_termios = termios.tcgetattr(stdin_fd)
+            tty.setcbreak(stdin_fd)
+        except Exception:
+            stdin_fd = None
+            orig_termios = None
+
     def restore_and_exit(signum=None, frame=None):
-        sys.stdout.write("\033[?25h\033[?12h\033[0m\033[?1049l\n")  # Show cursor, restore blink, reset color, exit alternate screen
+        if stdin_fd is not None and orig_termios is not None:
+            try:
+                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, orig_termios)
+            except Exception:
+                pass
+        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\033[?12h\033[0m\033[?1049l\n")
         if os.environ.get("TMUX"):
             sys.stdout.write("\033Ptmux;\033\033[?25h\033\\\033Ptmux;\033\033[?12h\033\\")
         sys.stdout.flush()
@@ -1386,8 +1769,8 @@ def main():
     signal.signal(signal.SIGINT, restore_and_exit)
     signal.signal(signal.SIGTERM, restore_and_exit)
 
-    # Enter alternate screen buffer, hide cursor & disable blinking
-    sys.stdout.write("\033[?1049h\033[?25l\033[?12l\033[2J\033[H")
+    # Enter alternate screen buffer, hide cursor, disable blinking, and enable SGR mouse clicks
+    sys.stdout.write("\033[?1049h\033[?25l\033[?12l\033[?1000h\033[?1006h\033[2J\033[H")
     if os.environ.get("TMUX"):
         sys.stdout.write("\033Ptmux;\033\033[?25l\033\\\033Ptmux;\033\033[?12h\033\\")
     sys.stdout.flush()
@@ -1403,13 +1786,313 @@ def main():
             boot_mtime = self_path.stat().st_mtime
         except OSError:
             boot_mtime = 0.0
-        default_painting = painter.choose_curated_painting(0) if painter is not None else None
-        if default_painting is not None:
-            default_painting["at"] = 0.0
+
+        # §6 Your opening: ensure session has an opening painting if none exists yet
+        default_painting = None
+        if painter is not None:
+            existing_sess = painter.load_session_paintings(Path.cwd())
+            if existing_sess:
+                default_painting = existing_sess[-1]
+            else:
+                default_painting = painter.generate_opening_painting()
+                try:
+                    painter.save_painting_json(default_painting)
+                except Exception:
+                    pass
+
+        # Interactive UI state for story, convert menu, and background jobs
+        ui_state: Dict[str, Any] = {
+            "story": None,
+            "menu_step": 0,
+            "convert_target": "this",
+            "session_count": 1,
+            "job": None,
+            "job_done_flash_until": 0.0,
+        }
+        story_paintings: List[dict] = []
+        story_page_started: float = 0.0
+        story_paused_elapsed: float = 0.0
+        current_hitboxes: List[dict] = []
+        job_lock = threading.Lock()
+
+        def _start_story() -> None:
+            nonlocal story_paintings, story_page_started, story_paused_elapsed
+            if painter is None:
+                return
+            story_paintings = painter.load_session_paintings(Path.cwd())
+            if not story_paintings and default_painting:
+                story_paintings = [default_painting]
+            if not story_paintings:
+                return
+            story_page_started = time.time()
+            story_paused_elapsed = 0.0
+            ui_state["menu_step"] = 0
+            ui_state["story"] = {
+                "active": True,
+                "index": 0,
+                "total": len(story_paintings),
+                "painting": story_paintings[0],
+                "paused": False,
+                "at_end": False,
+                "reveal": 0.08,
+            }
+
+        if args.story:
+            _start_story()
+
+        def _active_painting_for_convert() -> dict:
+            # §3 "A held page is the one convert makes large."
+            st = ui_state.get("story")
+            if isinstance(st, dict) and st.get("active") and st.get("painting"):
+                return st["painting"]
+            if isinstance(expr_state, dict) and expr_state.get("painting"):
+                return expr_state["painting"]
+            return default_painting or painter.choose_curated_painting(0)
+
+        def _launch_background_job(target_what: str, way: str) -> None:
+            if painter is None:
+                return
+            with job_lock:
+                if ui_state.get("job") and ui_state["job"].get("active"):
+                    return  # Already running a job
+                ui_state["job"] = {"active": True, "label": "preparing lattice…", "fraction": 0.02}
+
+            held_p = _active_painting_for_convert()
+            all_p = painter.load_session_paintings(Path.cwd()) or [held_p]
+
+            def _worker() -> None:
+                last_upd = [0.0]
+
+                def _on_prog(lbl: str, frac: float) -> None:
+                    now_m = time.monotonic()
+                    if frac >= 1.0 or (now_m - last_upd[0] >= 0.18):
+                        last_upd[0] = now_m
+                        with job_lock:
+                            ui_state["job"] = {"active": True, "label": lbl, "fraction": frac}
+
+                try:
+                    out_dir = Path.cwd() / "prism-paintings"
+                    if target_what == "roll" and roll is not None:
+                        roll.build_session_roll(all_p, out_dir, mode="720p", on_progress=_on_prog)
+                    elif target_what == "every":
+                        ways = ["truest", "faithful", "refined", "interpretive"]
+                        for idx_w, w_name in enumerate(ways):
+                            _on_prog(f"laying down “{held_p.get('title', '')[:18]}” · {idx_w + 1}/4", idx_w / 4.0)
+                            painter.convert_painting(held_p, gallery_dir=out_dir, way=w_name)
+                        _on_prog(f"crystallized 4 ways · “{held_p.get('title', '')[:18]}”", 1.0)
+                    elif target_what == "all":
+                        n_all = len(all_p)
+                        for idx_p, p_item in enumerate(all_p):
+                            _on_prog(f"laying down “{p_item.get('title', '')[:18]}” · {idx_p + 1}/{n_all}", idx_p / float(n_all))
+                            painter.convert_painting(p_item, gallery_dir=out_dir, way=way)
+                        _on_prog(f"crystallized {n_all} paintings · {way}", 1.0)
+                    else:
+                        painter.convert_painting(held_p, gallery_dir=out_dir, way=way, on_progress=_on_prog)
+                except Exception as exc:
+                    with job_lock:
+                        ui_state["job"] = {"active": True, "label": f"error: {str(exc)[:28]}", "fraction": 1.0}
+                finally:
+                    # Keep 100% visible briefly (0.8s) and ALWAYS clear & redraw when job ends (§2)
+                    with job_lock:
+                        ui_state["job_done_flash_until"] = time.time() + 0.8
+
+            t_worker = threading.Thread(target=_worker, daemon=True)
+            t_worker.start()
+
+        def _dispatch_action(action: str) -> None:
+            nonlocal story_page_started, story_paused_elapsed
+            st = ui_state.get("story")
+            if action == "tool_story":
+                if isinstance(st, dict) and st.get("active"):
+                    ui_state["story"] = None
+                else:
+                    _start_story()
+            elif action == "tool_convert":
+                if ui_state.get("menu_step") in (1, 2):
+                    ui_state["menu_step"] = 0
+                else:
+                    s_list = painter.load_session_paintings(Path.cwd()) if painter else []
+                    ui_state["session_count"] = max(1, len(s_list))
+                    ui_state["menu_step"] = 1
+            elif action == "tool_roll":
+                ui_state["menu_step"] = 0
+                _launch_background_job("roll", "truest")
+            elif action == "tool_copy":
+                ok, msg = copy_turn_to_clipboard(emit_osc52=True)
+                if mcp_server:
+                    mcp_server.write_expression(thought=f"⧉ {msg}", ttl=4.0, save_shared_json=False)
+            elif action == "menu_cancel":
+                ui_state["menu_step"] = 0
+            elif action == "menu_back":
+                ui_state["menu_step"] = 1
+            elif action == "menu_what_this":
+                ui_state["convert_target"] = "this"
+                ui_state["menu_step"] = 2
+            elif action == "menu_what_all":
+                ui_state["convert_target"] = "all"
+                ui_state["menu_step"] = 2
+            elif action == "menu_what_every":
+                ui_state["menu_step"] = 0
+                _launch_background_job("every", "truest")
+            elif action == "menu_what_roll":
+                ui_state["menu_step"] = 0
+                _launch_background_job("roll", "truest")
+            elif action.startswith("menu_way_"):
+                way_chosen = action.replace("menu_way_", "")
+                target_w = ui_state.get("convert_target", "this")
+                ui_state["menu_step"] = 0
+                _launch_background_job(target_w, way_chosen)
+            elif isinstance(st, dict) and st.get("active"):
+                now_t = time.time()
+                if action == "story_pause":
+                    st["paused"] = True
+                    story_paused_elapsed = now_t - story_page_started
+                elif action == "story_play":
+                    st["paused"] = False
+                    story_page_started = now_t - story_paused_elapsed
+                elif action == "story_again":
+                    st["index"] = 0
+                    st["painting"] = story_paintings[0]
+                    st["paused"] = False
+                    st["at_end"] = False
+                    st["reveal"] = 0.08
+                    story_page_started = now_t
+                    story_paused_elapsed = 0.0
+                elif action == "story_back":
+                    new_i = max(0, int(st["index"]) - 1)
+                    st["index"] = new_i
+                    st["painting"] = story_paintings[new_i]
+                    st["at_end"] = False
+                    story_page_started = now_t
+                    story_paused_elapsed = 0.0
+                elif action == "story_next":
+                    new_i = min(len(story_paintings) - 1, int(st["index"]) + 1)
+                    st["index"] = new_i
+                    st["painting"] = story_paintings[new_i]
+                    st["at_end"] = False
+                    story_page_started = now_t
+                    story_paused_elapsed = 0.0
+                elif action == "story_end":
+                    ui_state["story"] = None
+
+        def _poll_input() -> None:
+            if stdin_fd is None:
+                return
+            try:
+                rlist, _, _ = select.select([stdin_fd], [], [], 0.0)
+                if not rlist:
+                    return
+                buf = os.read(stdin_fd, 256).decode("utf-8", errors="ignore")
+            except Exception:
+                return
+            if not buf:
+                return
+
+            # Check for SGR mouse press: \033[<btn;col;rowM
+            for m_click in re.finditer(r"\033\[<(\d+);(\d+);(\d+)([Mm])", buf):
+                btn = int(m_click.group(1))
+                col_1 = int(m_click.group(2))
+                row_1 = int(m_click.group(3))
+                kind_m = m_click.group(4)
+                if kind_m == "M" and btn in (0, 1, 2):
+                    cx_click = col_1 - 1
+                    cy_click = row_1 - 1
+                    for hb in current_hitboxes:
+                        if hb["y"] == cy_click and hb["x0"] <= cx_click <= hb["x1"]:
+                            _dispatch_action(hb["action"])
+                            return
+
+            # Keyboard fallback shortcuts (§2)
+            if "\033[<" in buf:
+                return
+            st = ui_state.get("story")
+            m_step = ui_state.get("menu_step", 0)
+            if m_step == 1:
+                if "1" in buf:
+                    _dispatch_action("menu_what_this")
+                elif "2" in buf:
+                    _dispatch_action("menu_what_every")
+                elif "3" in buf:
+                    _dispatch_action("menu_what_all")
+                elif "4" in buf:
+                    _dispatch_action("menu_what_roll")
+                elif "\x1b" in buf or "q" in buf:
+                    _dispatch_action("menu_cancel")
+                return
+            if m_step == 2:
+                if "1" in buf:
+                    _dispatch_action("menu_way_truest")
+                elif "2" in buf:
+                    _dispatch_action("menu_way_faithful")
+                elif "3" in buf:
+                    _dispatch_action("menu_way_refined")
+                elif "4" in buf:
+                    _dispatch_action("menu_way_interpretive")
+                elif "\x1b" in buf or "b" in buf or "q" in buf:
+                    _dispatch_action("menu_back")
+                return
+
+            if isinstance(st, dict) and st.get("active"):
+                if " " in buf or "p" in buf:
+                    if st.get("at_end"):
+                        _dispatch_action("story_again")
+                    elif st.get("paused"):
+                        _dispatch_action("story_play")
+                    else:
+                        _dispatch_action("story_pause")
+                    return
+                if "\033[D" in buf or "<" in buf or "," in buf or "h" in buf:
+                    _dispatch_action("story_back")
+                    return
+                if "\033[C" in buf or ">" in buf or "." in buf or "l" in buf:
+                    _dispatch_action("story_next")
+                    return
+                if "\x1b" in buf or "q" in buf:
+                    _dispatch_action("story_end")
+                    return
+
+            if "s" in buf:
+                _dispatch_action("tool_story")
+            elif "c" in buf:
+                _dispatch_action("tool_convert")
+            elif "r" in buf:
+                _dispatch_action("tool_roll")
+            elif "y" in buf:
+                _dispatch_action("tool_copy")
+
         while True:
             try:
-                t = time.time() - t0
+                now_wall = time.time()
+                t = now_wall - t0
                 cols, rows = shutil.get_terminal_size((80, 24))
+
+                _poll_input()
+
+                # Update story progression (§3: 2.4s laydown, ~7s per page, played once through then held on last page)
+                st_cur = ui_state.get("story")
+                if isinstance(st_cur, dict) and st_cur.get("active") and story_paintings:
+                    if st_cur.get("paused") or st_cur.get("at_end"):
+                        el_page = story_paused_elapsed if st_cur.get("paused") else painter.STORY_PAGE_S
+                    else:
+                        el_page = max(0.0, now_wall - story_page_started)
+                        if el_page >= painter.STORY_PAGE_S:
+                            cur_i = int(st_cur.get("index", 0))
+                            if cur_i + 1 < len(story_paintings):
+                                st_cur["index"] = cur_i + 1
+                                st_cur["painting"] = story_paintings[cur_i + 1]
+                                story_page_started = now_wall
+                                el_page = 0.0
+                            else:
+                                st_cur["at_end"] = True
+                                el_page = painter.STORY_PAGE_S
+                    st_cur["reveal"] = 1.0 if st_cur.get("at_end") else min(1.0, max(0.08, el_page / painter.REVEAL_S))
+
+                # Clear completed background job after completion flash so bar never sits stale (§2)
+                with job_lock:
+                    flash_until = float(ui_state.get("job_done_flash_until") or 0.0)
+                    if flash_until > 0.0 and now_wall >= flash_until:
+                        ui_state["job"] = None
+                        ui_state["job_done_flash_until"] = 0.0
 
                 # Auto-recheck feed & hot-reload if terminal.py was updated on disk
                 if not explicit_feed and not args.demo and not args.demo_state and (t - last_feed_check >= 0.5):
@@ -1425,12 +2108,21 @@ def main():
                         if discovered and discovered != feed_dir:
                             feed_dir = discovered
 
-                if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.25):
+                if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.20):
                     last_expr_check = t
                     expr_state = mcp_server.read_expression()
+                    if painter is not None:
+                        latest_shared = painter.load_session_paintings(Path.cwd())
+                        if latest_shared:
+                            ui_state["session_count"] = len(latest_shared)
+                            default_painting = latest_shared[-1]
                     if default_painting is not None:
                         if not isinstance(expr_state, dict):
-                            expr_state = {"v": 1, "painting": default_painting, "paintStats": {"paintings": 1, "tokens": 2100}}
+                            expr_state = {
+                                "v": 1,
+                                "painting": default_painting,
+                                "paintStats": {"paintings": ui_state.get("session_count", 1), "tokens": 2100},
+                            }
                         elif not expr_state.get("painting"):
                             expr_state = dict(expr_state, painting=default_painting)
 
@@ -1450,6 +2142,7 @@ def main():
                     except Exception:
                         pass
 
+                new_hitboxes: List[dict] = []
                 frame = render_prism_frame(
                     state,
                     cols,
@@ -1463,7 +2156,10 @@ def main():
                     link_state=link_st,
                     link_sheets=link_sh,
                     expression=expr_state,
+                    ui_state=ui_state,
+                    hitboxes=new_hitboxes,
                 )
+                current_hitboxes = new_hitboxes
 
                 # Atomic redraw with cursor hide & bottom-right parking
                 clear_seq = "\033[2J" if (cols, rows) != prev_size else ""

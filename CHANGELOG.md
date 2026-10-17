@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0 - Shared Spark & Prism Paintings, Clickable Tools, Story, 4-Way Convert & Musical Roll
+
+- **Bidirectional Painting Sharing (`prism-paintings/` ↔ `spark-paintings/`)**: Added full support for the shared Spark & Prism painting schema (`by: "prism" | "spark"`, `shape: "wide" | "square" | "tall"`, `opening: true`, strict clamping of widths `0.003–0.12`, radii `0.004–0.7`, spray `n <= 200`, and points `2–24`), reading Spark's paintings into the session story and crediting `"Spark"` when displayed or exported.
+- **Clickable Top-Right Terminal Tools & Progress Bar**: Added SGR mouse-clickable and keyboard-accessible controls (`▶ story   ⇪ convert   ◎ roll   ⧉ copy`) in the top right of Prism's pane, with an eighths-of-a-cell (`▏▎▍▌▋▊▉█`) progress row underneath that updates every ~200 ms and always redraws on completion.
+- **Interactive Story Mode (`▶ story` / `prism story`)**: Plays through the session's paintings (Prism's and Spark's) in chronological order (`2.4 s` mark-by-mark laydown, `7.0 s` page hold) with clickable `⏸ pause` / `▶ play` / `▶ again`, `‹ back`, `next ›`, `■ end` controls and `story · 2 of 5 · HH:MM · Spark's · her opening` captions.
+- **4-Way Convert (`⇪ convert` / `prism convert`)**: Added two-step interactive menu (`This painting`, `Every way`, `All N paintings`, `The roll` × `Truest`, `Faithful`, `Refined`, `Interpretive` with token cost estimates), exporting both `.svg` and `.png` (`hd` 1920w and `4k` 3840w) plus `prism-paintings/index.html`, with 4-layer depth, far-layer softening, drop shadows, and luminance bloom on `truest`.
+- **Session Roll with Procedural Music (`◎ roll` / `prism roll`)**: Added `scripts/roll.py` to generate MP4 clips (`720p`, `hd` 1080p, and upright `short` 1080×1920) with a title card (`Spark & Prism · date · N paintings · music in <Root> <mode>`), 84 BPM musical hold times, and stereo 44.1 kHz audio synthesized directly from the paintings' marks (bell, pluck, sparkle, swell), streaming and cleaning up frames one painting segment at a time.
+- **Colour Depth, Opening Painting & Turn Copy (`⧉ copy`)**: Added hue-preserving white spill above `1.0×` full light (`tonemap_light`, reaching pure white at `2.5×`), session opening paintings seeded solely from the hour bucket, month, and one random word, and `⧉ copy` / `prism copy` to copy the user's prompt and Prism's full reply to the clipboard.
+
 ## 1.2.1 - Clipboard Integration & Cold-Start Resilience
 
 - **Observer Hook Integrity**: Removed invasive `PreToolUse` hook registration from `hooks.json`. Per Prism Agent Rules, Prism is strictly a telemetry observer (`PreInvocation`, `PostInvocation`, `PostToolUse`, `Stop`) and must never gate, modify, or block tool calls.

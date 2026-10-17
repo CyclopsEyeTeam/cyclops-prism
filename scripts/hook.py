@@ -69,7 +69,13 @@ def handle_event(payload: dict) -> None:
     home = os.environ.get("HOME", "/tmp")
     data_root = Path(os.environ.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state")) / "gemini-prism"
     sessions_dir = data_root / "sessions"
-    presence_feed._safe_mkdir(sessions_dir)
+    try:
+        presence_feed._safe_mkdir(sessions_dir)
+    except OSError:
+        data_root = Path("/tmp") / "gemini-prism"
+        sessions_dir = data_root / "sessions"
+        presence_feed._safe_mkdir(sessions_dir)
+        presence_root = data_root / "presence"
 
     state_path = sessions_dir / f"{session_hash}.state.json"
     state_lock_path = sessions_dir / f"{session_hash}.state.lock"
