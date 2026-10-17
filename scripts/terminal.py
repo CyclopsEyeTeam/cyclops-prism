@@ -2247,13 +2247,17 @@ def main():
                     pass
 
         # Autonomous painting cadence tracking:
-        # - Paints on every message turn resolved (turn.resolve / reply.crystallize)
-        # - At least every 15 minutes (900s)
-        # - Spontaneous painting every 5 minutes (300s) during long work windows
+        # - Paints only on Prism's reply completion (turn.resolve / resolved), never on user message arrival (attending)
+        # - Enforces a 120s appreciation gap between reply paintings
+        # - Spontaneous painting every 5 minutes (300s) only during continuous long work turns
+        # - Ambient painting every 15 minutes (900s) when idle
         seen_resolve_seq = 0
         if feed_dir and feed_dir.is_dir():
             seen_resolve_seq = int(load_feed_state(feed_dir).get("lastResolveSeq") or 0)
-        last_auto_paint_wall = time.time()
+        init_p_ts = float((default_painting or {}).get("at") or 0.0) if isinstance(default_painting, dict) else 0.0
+        last_auto_paint_wall = init_p_ts if init_p_ts > 0.0 else time.time()
+        active_turn_started_wall: Optional[float] = None
+        turn_spectrum_acc: Dict[str, int] = {}
 
         # Interactive UI state for story, convert menu, side chat, paint mode, and background jobs
         initial_chat = (
@@ -2728,25 +2732,46 @@ def main():
                     state = get_demo_state(t, forced_state="idle")
 
                 # Autonomous painting trigger check:
-                # 1. On every message turn resolved (turn.resolve / reply.crystallize)
-                # 2. At least every 15 minutes (900s)
-                # 3. Spontaneous painting every 5 minutes (300s) during long active work (attending/refracting/branching)
+                # 1. Only on Prism's reply completion (turn.resolve / resolved), NEVER on user message arrival (attending)
+                # 2. Enforce a 120s appreciation gap between reply paintings so each piece has room to breathe
+                # 3. Spontaneous painting every 5 minutes (300s) only if a single active work turn runs continuously >= 300s
+                # 4. Ambient painting every 15 minutes (900s) when idle/quiet
                 if painter is not None and mcp_server is not None and not args.demo and not args.demo_state:
+                    cur_mode = str(state.get("mode") or "idle")
+                    if cur_mode in ("attending", "refracting", "branching", "approval"):
+                        if active_turn_started_wall is None:
+                            active_turn_started_wall = now_wall
+                        for k_sp, v_sp in (state.get("spectrum") or {}).items():
+                            turn_spectrum_acc[k_sp] = max(turn_spectrum_acc.get(k_sp, 0), int(v_sp))
+                    elif cur_mode != "resolved":
+                        active_turn_started_wall = None
+                        turn_spectrum_acc.clear()
+
                     cur_resolve_seq = int(state.get("lastResolveSeq") or 0)
                     cur_p = expr_state.get("painting") if isinstance(expr_state, dict) else None
                     p_ts = float(cur_p.get("at") or cur_p.get("startedAt") or 0.0) if isinstance(cur_p, dict) else 0.0
                     def_ts = float(default_painting.get("at") or 0.0) if isinstance(default_painting, dict) else 0.0
                     last_paint_at = max(last_auto_paint_wall, p_ts, def_ts)
                     time_since_paint = max(0.0, now_wall - last_paint_at)
+                    active_turn_elapsed = (
+                        max(0.0, now_wall - active_turn_started_wall)
+                        if active_turn_started_wall is not None
+                        else 0.0
+                    )
                     should_auto_paint = False
 
                     if cur_resolve_seq > seen_resolve_seq:
                         seen_resolve_seq = cur_resolve_seq
-                        if time_since_paint >= 4.0:
+                        active_turn_started_wall = None
+                        if cur_mode == "resolved" and time_since_paint >= 120.0:
                             should_auto_paint = True
-                    elif time_since_paint >= 900.0:
+                    elif time_since_paint >= 900.0 and cur_mode not in ("attending", "refracting", "branching", "approval"):
                         should_auto_paint = True
-                    elif state.get("mode") in ("attending", "refracting", "branching") and time_since_paint >= 300.0:
+                    elif (
+                        cur_mode in ("refracting", "branching")
+                        and active_turn_elapsed >= 300.0
+                        and time_since_paint >= 300.0
+                    ):
                         should_auto_paint = True
 
                     if should_auto_paint:
@@ -2754,12 +2779,18 @@ def main():
                         stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else {}) or {}
                         next_idx = int(stats.get("paintings", 0)) + 1
                         cur_pm = str(ui_state.get("paint_mode") or (expr_state or {}).get("paintMode") or "live")
+                        paint_state = dict(state)
+                        if turn_spectrum_acc:
+                            merged_sp = dict(paint_state.get("spectrum") or {})
+                            for k_sp, v_sp in turn_spectrum_acc.items():
+                                merged_sp[k_sp] = max(merged_sp.get(k_sp, 0), v_sp)
+                            paint_state["spectrum"] = merged_sp
                         new_p = painter.generate_living_painting(
                             now=now_wall,
                             step_index=next_idx,
                             mood_hint=state.get("mood"),
                             paint_mode=cur_pm,
-                            state_data=state,
+                            state_data=paint_state,
                         )
                         expr_state = mcp_server.write_expression(
                             thought=new_p.get("thought"),
@@ -2771,6 +2802,9 @@ def main():
                         if ui_state.get("story") and ui_state["story"].get("active"):
                             story_paintings = painter.load_session_paintings(Path.cwd()) or [new_p]
                             ui_state["story"]["total"] = len(story_paintings)
+
+                    if cur_mode == "resolved":
+                        turn_spectrum_acc.clear()
 
                 link_st = None
                 link_sh = None
