@@ -34,34 +34,81 @@ def expression_file_path(environ: Optional[Dict[str, str]] = None) -> Path:
     return state_home / "gemini-prism" / "expression.json"
 
 
+try:
+    import painter
+except ImportError:
+    try:
+        from scripts import painter
+    except ImportError:
+        painter = None
+
+
 def write_expression(
-    thought: str = "",
+    thought: Optional[str] = None,
     *,
     mood: Optional[str] = None,
     effect: Optional[str] = None,
     glyph: Optional[str] = None,
     art: Optional[List[str]] = None,
+    painting: Optional[Dict[str, Any]] = None,
     ttl: float = 0.0,
     environ: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """Atomically write an expressive update to Prism's terminal channel."""
+    """Atomically write an expressive update (and optional painting) to Prism's terminal channel."""
     target = expression_file_path(environ)
     target.parent.mkdir(parents=True, exist_ok=True)
 
+    prev = read_expression(environ) or {}
     now = time.time()
-    clean_mood = mood.lower().strip() if isinstance(mood, str) and mood.lower().strip() in VALID_MOODS else None
-    clean_effect = effect.lower().strip() if isinstance(effect, str) and effect.lower().strip() in VALID_EFFECTS else None
-    clean_glyph = glyph.strip()[:2] if isinstance(glyph, str) and glyph.strip() else None
-    clean_art = [str(line)[:64] for line in (art or [])[:5]] if isinstance(art, list) else []
+    clean_mood = (
+        mood.lower().strip()
+        if isinstance(mood, str) and mood.lower().strip() in VALID_MOODS
+        else prev.get("mood")
+    )
+    clean_effect = (
+        effect.lower().strip()
+        if isinstance(effect, str) and effect.lower().strip() in VALID_EFFECTS
+        else prev.get("effect")
+    )
+    clean_glyph = (
+        glyph.strip()[:2]
+        if isinstance(glyph, str) and glyph.strip()
+        else prev.get("glyph")
+    )
+    clean_art = (
+        [str(line)[:64] for line in (art or [])[:5]]
+        if isinstance(art, list)
+        else prev.get("art", [])
+    )
     ttl_val = float(ttl) if isinstance(ttl, (int, float)) and ttl >= 0 else 0.0
+
+    active_painting = prev.get("painting")
+    paint_stats = prev.get("paintStats") or {"paintings": 0, "tokens": 0}
+    if painting is not None and painter is not None:
+        parsed_p = painter.parse_painting(painting)
+        if parsed_p:
+            parsed_p["at"] = now
+            active_painting = parsed_p
+            paint_stats = {
+                "paintings": int(paint_stats.get("paintings", 0)) + 1,
+                "tokens": int(paint_stats.get("tokens", 0)) + int(parsed_p.get("tokens") or 2100),
+            }
+
+    thought_val = (
+        str(thought).strip()[:240]
+        if thought is not None
+        else str(prev.get("thought") or "")
+    )
 
     payload = {
         "v": 1,
-        "thought": str(thought or "").strip()[:240],
+        "thought": thought_val,
         "mood": clean_mood,
         "effect": clean_effect,
         "glyph": clean_glyph,
         "art": clean_art,
+        "painting": active_painting,
+        "paintStats": paint_stats,
         "updatedAt": now,
         "expiresAt": (now + ttl_val) if ttl_val > 0 else None,
     }
@@ -154,8 +201,60 @@ MCP_TOOLS = [
         },
     },
     {
+        "name": "prism_paint",
+        "description": (
+            "Paint a 24-bit truecolor half-block ('▀') artwork below Prism in her terminal companion "
+            "using the Cyclops/Spark mark vocabulary (fill, glow, line, curve, dot, ring, arc, spray) "
+            "or a curated painting preset, with optional SVG export to prism-paintings/."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title of the painting (up to 48 chars), shown in italic under the canvas ('✎ Title').",
+                },
+                "thought": {
+                    "type": "string",
+                    "description": "Optional inner reflection line for Prism to say alongside the painting.",
+                },
+                "mood": {
+                    "type": "string",
+                    "enum": list(VALID_MOODS),
+                    "description": "Optional mood palette for Prism's rings while showing this painting.",
+                },
+                "mirror": {
+                    "type": "string",
+                    "enum": ["none", "x", "y", "xy"],
+                    "description": "Optional symmetry reflection for all marks.",
+                },
+                "marks": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "Array of mark objects on a [0..1] canvas: "
+                        "fill ({k:'fill',pts:[[x,y],...],c:'#rrggbb',c2:'#rrggbb',grad:0.25,a:0.9}), "
+                        "glow ({k:'glow',x:0.5,y:0.5,r:0.3,c:'#rrggbb',a:0.7}), "
+                        "line/curve ({k:'line'|'curve',pts:[[x,y],...],w:0.02,c:'#rrggbb',c2:'#rrggbb',a:0.9}), "
+                        "dot ({k:'dot',x:0.5,y:0.5,r:0.05,c:'#rrggbb',a:1}), "
+                        "ring/arc ({k:'ring'|'arc',x:0.5,y:0.5,r:0.15,w:0.02,a0:0,a1:0.5,c:'#rrggbb',a:0.8}), "
+                        "spray ({k:'spray',x:0.5,y:0.4,r:0.3,n:45,s:0.014,c:'#rrggbb',a:0.7})."
+                    ),
+                },
+                "preset": {
+                    "type": "integer",
+                    "description": "Optional curated painting index (0..3) if custom marks are not provided.",
+                },
+                "convert": {
+                    "type": "boolean",
+                    "description": "If true, also export a 1920x1100 bloom SVG + index.html to prism-paintings/.",
+                },
+            },
+        },
+    },
+    {
         "name": "prism_clear_expression",
-        "description": "Clear the pinned expression on Prism's terminal companion and return to automatic lifecycle reflection.",
+        "description": "Clear the pinned expression and painting on Prism's terminal companion and return to automatic lifecycle reflection.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -182,7 +281,7 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "result": {
                 "protocolVersion": client_Version,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cyclops-prism-express", "version": "1.3.0"},
+                "serverInfo": {"name": "cyclops-prism-express", "version": "1.4.0"},
             },
         }
 
@@ -214,6 +313,55 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 "id": req_id,
                 "result": {
                     "content": [{"type": "text", "text": summary}],
+                    "isError": False,
+                },
+            }
+        elif name == "prism_paint":
+            if painter is None:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32603, "message": "Painter module not available"},
+                }
+            if args.get("marks"):
+                paint_obj = painter.parse_painting({
+                    "title": args.get("title") or "Untitled refraction",
+                    "thought": args.get("thought") or "",
+                    "mood": args.get("mood") or "aurora",
+                    "mirror": args.get("mirror"),
+                    "marks": args.get("marks"),
+                    "tokens": args.get("tokens", 2100),
+                    "model": args.get("model", "prism-painter"),
+                })
+            else:
+                preset_idx = args.get("preset")
+                paint_obj = painter.choose_curated_painting(int(preset_idx) if isinstance(preset_idx, int) else None)
+                if args.get("title"):
+                    paint_obj["title"] = str(args["title"])[:48]
+                if args.get("thought"):
+                    paint_obj["thought"] = str(args["thought"])[:160]
+                if args.get("mood"):
+                    paint_obj["mood"] = str(args["mood"])
+            if not paint_obj:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32602, "message": "Invalid painting marks"},
+                }
+            payload = write_expression(
+                thought=args.get("thought") or paint_obj.get("thought") or None,
+                mood=args.get("mood") or paint_obj.get("mood"),
+                painting=paint_obj,
+            )
+            svg_msg = ""
+            if args.get("convert"):
+                svg_path = painter.save_painting_to_gallery(paint_obj)
+                svg_msg = f" (saved SVG to {svg_path})"
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": f"✎ Painted below Prism: \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks){svg_msg}"}],
                     "isError": False,
                 },
             }

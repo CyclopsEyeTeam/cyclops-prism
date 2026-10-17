@@ -38,6 +38,11 @@ try:
     import mcp_server
 except ImportError:
     mcp_server = None
+try:
+    import painter
+except ImportError:
+    painter = None
+
 
 # Truecolor RGB escape sequences
 C_RESET = "\033[0m"
@@ -316,8 +321,9 @@ class TerminalGrid:
                 ch = self.chars[y][x]
                 col = self.colors[y][x] if self.use_color else ""
                 if self.use_color and col != cur_color:
-                    # a cell with a background (a peer's half-block mark) must not lend it to the next cell
-                    line.append(C_RESET if not col else (C_RESET + col if "[48;" in cur_color else col))
+                    # a cell with a background or italic attribute must not lend it to the next cell
+                    needs_reset = ("[48;" in cur_color) or ("\033[3m" in cur_color)
+                    line.append(C_RESET if not col else (C_RESET + col if needs_reset else col))
                     cur_color = col
                 line.append(ch)
             if self.use_color and cur_color:
@@ -343,11 +349,9 @@ def render_prism_frame(
     """Render one complete ASCII/ANSI terminal frame for Prism.
 
     link_state: the Cyclops Link view (peers and threads) when Link is on; None draws Prism alone.
-    expression: optional live payload from Prism's Expressive Channel (thought, mood, effect, glyph, art).
+    expression: optional live payload from Prism's Expressive Channel (thought, mood, effect, glyph, art, painting).
     """
     grid = TerminalGrid(width, height, use_color=use_color)
-    cx = width // 2
-    cy = height // 2 - 1
 
     sem_mode = state_data.get("mode", "idle")
     offer = state_data.get("offer")
@@ -364,6 +368,21 @@ def render_prism_frame(
     expr_effect = str(expr.get("effect") or "").strip().lower() or None
     expr_glyph = str(expr.get("glyph") or "").strip()[:2]
     expr_art = expr.get("art") if isinstance(expr.get("art"), list) else []
+    expr_painting = expr.get("painting") if isinstance(expr.get("painting"), dict) else None
+
+    has_link_peers = bool(link_state and link_state.get("peers"))
+    has_painting = bool(expr_painting and painter is not None and height >= 20 and not has_link_peers)
+
+    cx = width // 2
+    if has_painting:
+        # Split layout matching Spark's terminal pane: Prism in the upper half, painting + title below her
+        hud_y = max(9, min(height - 10, int(height * 0.45)))
+        cy = max(4, hud_y // 2)
+        fig_height = hud_y + 2
+    else:
+        hud_y = height - 2
+        cy = height // 2 - 1
+        fig_height = height
 
     primary_kind = lanes[0].get("kind", "") if lanes else ""
 
@@ -434,11 +453,10 @@ def render_prism_frame(
 
     is_focus = mode == "focus"
     # Responsive geometry scaling: dynamically fills available terminal canvas
-    hud_y = height - 2
     max_ry = max(2, hud_y - cy - 2)
 
     base_rx = max(11, min(int(width * 0.36), 46))
-    base_ry = max(2, min(int(height * 0.28), max_ry, 16))
+    base_ry = max(2, min(int(fig_height * 0.28), max_ry, 16))
     if not is_focus:
         ring_radius_x = max(11, int(base_rx * 0.90))
         ring_radius_y = max(2, min(int(base_ry * 0.90), max_ry))
@@ -458,7 +476,6 @@ def render_prism_frame(
     breath = 1.0 + (breath_amp * math.sin(t * breath_freq) if animate_live else 0.0)
     eff_rx = ring_radius_x * breath
     eff_ry = ring_radius_y * breath
-    has_link_peers = bool(link_state and link_state.get("peers"))
 
     # 0. Ambient Prismatic Caustic Field (upper & outer optical aura when canvas has room)
     if height >= 18 and width >= 34 and not ended and not (t == 0.0 and reduced_motion):
@@ -657,9 +674,9 @@ def render_prism_frame(
             grid.put(bx, by, g_sat, sat_col)
 
     # 4. Central Faceted Core (scales across compact top banners, 35x40 side panes, and wide terminals)
-    if ring_radius_x >= 22 and ring_radius_y >= 7 and height >= 26:
+    if ring_radius_x >= 22 and ring_radius_y >= 7 and fig_height >= 26:
         core_level = 3
-    elif ring_radius_x >= 11 and ring_radius_y >= 4 and height >= 18:
+    elif ring_radius_x >= 11 and ring_radius_y >= 4 and fig_height >= 18:
         core_level = 2
     else:
         core_level = 1
@@ -743,10 +760,10 @@ def render_prism_frame(
         grid.put(cx, cy, g_core, core_center_col if use_color else "")
 
     # 4b. Expressive Channel Floating Art Banner (top of canvas when Prism projects custom ASCII/Unicode art)
-    if expr_art and height >= 18 and not has_link_peers:
+    if expr_art and fig_height >= 16 and not has_link_peers:
         for art_i, raw_line in enumerate(expr_art[:5]):
             art_y = 1 + art_i
-            if art_y >= cy - 3:
+            if art_y >= cy - 2:
                 break
             art_line = str(raw_line)[: max(1, width - 4)]
             if not unicode_mode:
@@ -758,7 +775,6 @@ def render_prism_frame(
                     grid.put(ax0 + c_idx, art_y, ch_a, col_a)
 
     # 5. Cyclops Link: Spark and Keeper in their own looks at their seats, and the threads they declare
-    hud_y = height - 2
     if link_state is not None and link_view is not None:
         link_view.draw(grid, link_state, link_sheets or {}, centre=(cx, cy), hud_y=hud_y, t=t,
                        unicode_mode=unicode_mode, use_color=use_color, reduced_motion=reduced_motion or ended)
@@ -848,7 +864,7 @@ def render_prism_frame(
     c_telemetry = "\033[38;2;150;215;240m" if use_color else ""
     if is_focus:
         # In focus mode, place Prism's personal voice just above the status banner when room permits
-        if height >= 20 and not (link_state and link_state.get("peers")) and len(voice_line) < width - 2:
+        if fig_height >= 20 and not (link_state and link_state.get("peers")) and len(voice_line) < width - 2:
             _put_luminous_voice(hud_y - 1, voice_line)
         sub_info = f"Calls: {active_calls}  Branches: {active_branches}  Offer: {offer or 'none'}  Comp: {mode}"
         if link_state is not None and link_view is not None:
@@ -864,6 +880,20 @@ def render_prism_frame(
         if len(voice_line) > width - 2:
             voice_line = voice_line[: max(0, width - 2)]
         _put_luminous_voice(hud_y + 1, voice_line)
+
+    # 7. Lower-Pane Terminal Art Painting Block (Spark/Cyclops half-block mark canvas + italic `✎ Title` + stats)
+    if has_painting:
+        painter.draw_painting_block(
+            grid,
+            expr_painting,
+            width=width,
+            top_y=hud_y + 2,
+            bot_y=height,
+            t=t,
+            unicode_mode=unicode_mode,
+            use_color=use_color,
+            session_stats=expr.get("paintStats"),
+        )
 
     return grid.render()
 
@@ -1152,6 +1182,78 @@ def handle_express(argv: List[str]) -> None:
     print(f"✓ Prism expressive channel updated: {json.dumps(payload, ensure_ascii=False)}")
 
 
+def handle_paint(argv: List[str]) -> None:
+    """CLI handler for `prism paint` to paint a Spark/Cyclops-format half-block artwork below Prism."""
+    if mcp_server is None or painter is None:
+        print("Painter module is not available.")
+        sys.exit(1)
+
+    pp = argparse.ArgumentParser(prog="prism paint", description="Paint a 24-bit half-block artwork below Prism in her terminal companion")
+    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('convert', 'clear', 'off'), or title")
+    pp.add_argument("--title", default=None, help="Custom painting title ('✎ Title')")
+    pp.add_argument("--thought", default=None, help="Optional thought line for Prism to say above the painting")
+    pp.add_argument("--mood", choices=list(MOOD_STOPS.keys()), default=None, help="Chromatic mood palette")
+    pp.add_argument("--json", dest="json_marks", default=None, help="Raw JSON string with {'title': ..., 'marks': [...]}")
+    pp.add_argument("--convert", action="store_true", help="Also export a 1920x1100 bloom SVG + index.html to prism-paintings/")
+    parsed = pp.parse_args(argv)
+
+    words = [w.strip() for w in parsed.action if w.strip()]
+    if words and words[0].lower() in ("clear", "off", "none"):
+        cur = mcp_server.read_expression() or {}
+        cur.pop("painting", None)
+        mcp_server.clear_expression()
+        print("✓ Prism painting cleared.")
+        return
+
+    if words and words[0].lower() == "convert":
+        cur = mcp_server.read_expression() or {}
+        p_obj = cur.get("painting") or painter.choose_curated_painting(0)
+        out_dir = Path(words[1]) if len(words) > 1 else (Path.cwd() / "prism-paintings")
+        svg_path = painter.save_painting_to_gallery(p_obj, gallery_dir=out_dir)
+        print(f"✓ Converted painting \"{p_obj.get('title')}\" to {svg_path} (and updated {out_dir / 'index.html'})")
+        return
+
+    if parsed.json_marks:
+        paint_obj = painter.parse_painting(parsed.json_marks)
+        if not paint_obj:
+            print("Error: Invalid painting JSON or empty marks.")
+            sys.exit(1)
+    else:
+        preset_idx = None
+        if words and words[0].isdigit():
+            preset_idx = int(words[0])
+        elif words:
+            kw = " ".join(words).lower()
+            for idx_c, c_p in enumerate(painter.CURATED_PAINTINGS):
+                if kw in c_p["title"].lower() or kw in c_p["mood"].lower():
+                    preset_idx = idx_c
+                    break
+        if preset_idx is None:
+            cur = mcp_server.read_expression() or {}
+            stats = cur.get("paintStats") or {}
+            preset_idx = int(stats.get("paintings", 0)) % len(painter.CURATED_PAINTINGS)
+        paint_obj = painter.choose_curated_painting(preset_idx)
+
+    if parsed.title:
+        paint_obj["title"] = parsed.title[:48]
+    if parsed.thought:
+        paint_obj["thought"] = parsed.thought[:160]
+    if parsed.mood:
+        paint_obj["mood"] = parsed.mood
+
+    payload = mcp_server.write_expression(
+        thought=parsed.thought or paint_obj.get("thought") or None,
+        mood=parsed.mood or paint_obj.get("mood"),
+        painting=paint_obj,
+    )
+    svg_note = ""
+    if parsed.convert:
+        svg_path = painter.save_painting_to_gallery(paint_obj, gallery_dir=Path.cwd() / "prism-paintings")
+        svg_note = f" · exported SVG to {svg_path}"
+    stats = payload.get("paintStats") or {}
+    print(f"✎ Painted below Prism: \"{paint_obj['title']}\" ({len(paint_obj['marks'])} marks, session paintings: {stats.get('paintings', 1)}){svg_note}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prism Terminal Presence Observer")
     parser.add_argument("--feed", type=Path, default=None, help="Path to presence feed directory (containing live.json)")
@@ -1164,7 +1266,7 @@ def main():
     parser.add_argument("--calm", action="store_true", help="Slower ambient rotation")
     parser.add_argument("--reduced-motion", action="store_true", help="Disable ring rotation animation")
 
-    # Positional sugar: prism tmux, prism link, prism express/say, prism mcp, prism focus, prism once, prism demo, prism plain
+    # Positional sugar: prism tmux, prism link, prism express/say, prism paint, prism mcp, prism focus, prism once, prism demo, prism plain
     raw_args = sys.argv[1:]
     if raw_args and raw_args[0] == "tmux":
         subaction = raw_args[1] if len(raw_args) > 1 else "split"
@@ -1175,6 +1277,9 @@ def main():
         sys.exit(0)
     if raw_args and raw_args[0] in ("express", "say"):
         handle_express(raw_args[1:])
+        sys.exit(0)
+    if raw_args and raw_args[0] == "paint":
+        handle_paint(raw_args[1:])
         sys.exit(0)
     if raw_args and raw_args[0] == "mcp":
         if mcp_server is None:

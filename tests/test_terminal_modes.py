@@ -199,7 +199,35 @@ class TestTerminalModes(unittest.TestCase):
         clear_proc = subprocess.run(clear_cmd, capture_output=True, text=True, timeout=5, env=env)
         self.assertEqual(clear_proc.returncode, 0)
 
+    def test_prism_paint_and_spark_mark_format(self):
+        import painter
+        state = {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "hover": "Prism · ready"}
+        p_obj = painter.choose_curated_painting(0)
+        expr = {
+            "thought": "refracting warm horizon light",
+            "mood": "supernova",
+            "painting": p_obj,
+            "paintStats": {"paintings": 2, "tokens": 4200},
+        }
+        frame = terminal.render_prism_frame(state, 42, 36, t=0.0, mode="balanced", unicode_mode=True, use_color=True, expression=expr)
+        stripped = terminal._strip_colors(frame)
+        self.assertIn("Prism · ready", stripped)
+        self.assertIn("✎ Where the dark meets the first field", stripped)
+        self.assertIn("this painting · 2.1k tokens", stripped)
+        self.assertIn("session · 2 paintings · 4.2k tokens", stripped)
+        self.assertIn("(prism-muse)", stripped)
+
+        # Verify SVG export matches Spark's 1920x1100 bloom SVG format
+        gal_dir = Path(tempfile.mkdtemp(prefix="prism-gal-"))
+        svg_path = painter.save_painting_to_gallery(p_obj, gallery_dir=gal_dir)
+        self.assertTrue(svg_path.is_file())
+        svg_text = svg_path.read_text(encoding="utf-8")
+        self.assertIn('width="1920" height="1100"', svg_text)
+        self.assertIn("Where the dark meets the first field", svg_text)
+        self.assertTrue((gal_dir / "index.html").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

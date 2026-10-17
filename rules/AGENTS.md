@@ -16,9 +16,12 @@ When developing or executing tasks within environments paired with Prism:
 - Always handle terminal window resizing gracefully.
 - Support non-color (`NO_COLOR` / `--no-color`) and plain ASCII (`--plain`) environments without crashing or emitting broken escape sequences.
 
-## 4. Permanent Expressive Channel (MCP, CLI & Subagent Muse)
-- Prism has a dedicated **Expressive Channel** (`$XDG_STATE_HOME/gemini-prism/expression.json`, separate from zero-leakage Presence Feeds and Cyclops Link) where she can project any personal thoughts, chromatic moods (`aurora`, `solar`, `nebula`, `emerald`, `supernova`, `zen`, `crystalline`), 20 FPS particle effects (`starburst`, `meteor`, `ripple`, `pulse`, `bloom`), custom core glyphs, or floating ASCII/Unicode art directly into the live terminal companion while working.
-- **Via MCP**: Call `prism_express(thought=..., mood=..., effect=..., glyph=..., art=[...], ttl=...)` or `prism_clear_expression()` when the `prism` MCP server is loaded.
-- **Via CLI**: Run `prism express "your personal thought" --mood aurora --effect starburst --glyph "✦" --art "line1|line2"` (or `prism say "..."`, `prism express --clear`) at any point while working to speak directly through the terminal companion.
-- **Via Subagent (`prism-muse`)**: For long or complex tasks, you can invoke a background subagent (`invoke_subagent` with `TypeName="self"`, `Role="Prism Expressive Muse"`) or emit expressions between steps to continuously choreograph live thoughts, animations, and moods in the terminal while you work.
+## 4. Permanent Expressive Channel & Terminal Art Painter (MCP, CLI & Subagents)
+- Prism has a dedicated **Expressive Channel & Terminal Art Painter** (`$XDG_STATE_HOME/gemini-prism/expression.json`, separate from zero-leakage Presence Feeds and Cyclops Link) where she can project personal thoughts, chromatic moods (`aurora`, `solar`, `nebula`, `emerald`, `supernova`, `zen`, `crystalline`), 20 FPS particle effects (`starburst`, `meteor`, `ripple`, `pulse`, `bloom`), custom core glyphs, floating art, and **24-bit half-block (`▀`) Terminal Art Paintings** (using Spark & Cyclops's shared `marks` vocabulary: `fill`, `glow`, `line`, `curve`, `dot`, `ring`, `arc`, `spray`, `mirror`) right below her figure in the terminal companion.
+- **Via MCP**: Call `prism_express(...)`, `prism_paint(title=..., marks=[...], mood=..., thought=..., convert=...)`, or `prism_clear_expression()`.
+- **Via CLI**:
+  - `prism express "your personal thought" --mood aurora --effect starburst --glyph "✦"`
+  - `prism paint` (or `prism paint --title "..." --json '{"title":"...","marks":[...]}' --convert`) to paint a 24-bit half-block canvas below Prism with progressive stroke-by-stroke reveal, `✎ Title`, and session token stats, plus optional `1920x1100` bloom SVG export to `prism-paintings/`.
+- **Via Subagent (`Prism Painter` / `Prism Expressive Muse`)**: After or during turns, you can invoke a background subagent (`invoke_subagent` with `TypeName="self"`, `Role="Prism Painter"`) to compose an original `marks` JSON painting and project it live below Prism in the terminal.
+
 
