@@ -216,6 +216,12 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
         self.assertIn("tool_chat", actions)
         self.assertIn("chat_focus", actions)
 
+        # Ensure every row (including rows with 2-cell wide glyphs like 💬) equals exact terminal column width
+        for row_idx, raw_line in enumerate(frame.split("\n")):
+            stripped_row = terminal._strip_colors(raw_line)
+            cell_w = sum(terminal._char_cells(ch) for ch in stripped_row)
+            self.assertEqual(cell_w, 56, f"Row {row_idx} overflowed/underflowed terminal width: {cell_w} != 56")
+
 
 if __name__ == "__main__":
     unittest.main()

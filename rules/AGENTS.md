@@ -23,5 +23,7 @@ When developing or executing tasks within environments paired with Prism:
   - `prism express "your personal thought" --mood aurora --effect starburst --glyph "✦"`
   - `prism paint` (or `prism paint --title "..." --json '{"title":"...","marks":[...]}' --convert`) to paint a 24-bit half-block canvas below Prism with progressive stroke-by-stroke reveal, `✎ Title`, and session token stats, plus optional `1920x1100` bloom SVG export to `prism-paintings/`.
 - **Via Subagent (`Prism Painter` / `Prism Expressive Muse`)**: After or during turns, you can invoke a background subagent (`invoke_subagent` with `TypeName="self"`, `Role="Prism Painter"`) to compose an original `marks` JSON painting and project it live below Prism in the terminal.
+- **Autonomous Cadence**:
+  - A fresh procedural painting is autonomously generated and revealed upon **every message turn completion**, at a **minimum of every 15 minutes**, and **spontaneously every 5 minutes** during long active work windows (`attending`, `refracting`, `branching`). Each painting is automatically persisted to `prism-paintings/` for session history, story playback (`s`), and roll exporting (`r`).
 
 

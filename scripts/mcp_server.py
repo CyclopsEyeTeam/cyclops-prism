@@ -53,21 +53,34 @@ except ImportError:
         painter = None
 
 
-def _atomic_write_expr(target: Path, payload: Dict[str, Any]) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".expr-", suffix=".tmp", dir=target.parent)
+def _write_single_expr_file(dest: Path, payload: Dict[str, Any]) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".expr-", suffix=".tmp", dir=dest.parent)
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, target)
+        os.replace(tmp_path, dest)
     finally:
         try:
             os.unlink(tmp_path)
         except FileNotFoundError:
             pass
+
+
+def _atomic_write_expr(target: Path, payload: Dict[str, Any]) -> None:
+    _write_single_expr_file(target, payload)
+    # Mirror between ~/.local/state/gemini-prism/expression.json and /tmp/gemini-prism/expression.json
+    # so the host terminal pane and the sandboxed Antigravity agent always see each other's side-chat messages
+    if target.name == "expression.json" and target.parent.name == "gemini-prism":
+        tmp_mirror = Path("/tmp") / "gemini-prism" / "expression.json"
+        if target.resolve() != tmp_mirror.resolve():
+            try:
+                _write_single_expr_file(tmp_mirror, payload)
+            except Exception:
+                pass
 
 
 def write_expression(
