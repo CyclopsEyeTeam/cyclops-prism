@@ -994,13 +994,15 @@ def draw_painting_block(
             f"session · {total_paintings} {'painting' if total_paintings == 1 else 'paintings'} · {_kilo(tokens_total)} tokens",
             f"({model_name})" if by_author != "spark" else "(Spark · shared canvas)",
         ]
-        if avail_rows < 8:
+        if avail_rows < 7:
             meta_lines = []
-        elif avail_rows < 10:
+        elif avail_rows < 9:
             meta_lines = meta_lines[:1]
+        elif avail_rows < 11:
+            meta_lines = meta_lines[:2]
 
     caption_rows = 1 + len(meta_lines)
-    canvas_rows = max(3, min(14, avail_rows - caption_rows))
+    canvas_rows = max(3, min(11, avail_rows - caption_rows))
 
     # Respect `shape`: "wide" (2:1 -> cols ≈ 4*rows), "square" (1:1 -> cols ≈ 2*rows), "tall" (1:2 -> cols ≈ rows)
     shape = painting.get("shape", "wide")
@@ -1133,7 +1135,7 @@ def draw_painting_block(
                 cx_btn += len(lbl) + 3
         else:
             line_s = m_line if unicode_mode else m_line.replace("·", "-")
-            grid.put_str(x0, my, line_s[: max(1, canvas_cols)], dim_col)
+            grid.put_str(x0, my, line_s[: max(1, width - x0 - 1)], dim_col)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

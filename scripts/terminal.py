@@ -395,8 +395,8 @@ def render_prism_frame(
 
     cx = width // 2
     if has_painting:
-        # Split layout matching Spark's terminal pane: Prism in the upper half, painting + title below her
-        hud_y = max(9, min(height - 10, int(height * 0.45)))
+        # Split layout matching Spark's terminal pane: Prism in the upper half, breathing room + painting + side chat below her
+        hud_y = max(9, min(height - 14, int(height * 0.42)))
         cy = max(4, hud_y // 2)
         fig_height = hud_y + 2
     else:
@@ -924,11 +924,24 @@ def render_prism_frame(
                 _put_luminous_voice(hud_y + 1 + v_idx, v_ln)
         paint_top_y = hud_y + 1 + len(voice_lines[:2])
 
-    # 7. Clickable Top-Right Tools, Progress Row, Convert Menu & Lower-Pane Painting Block (§2, §3, §4, §6)
+    # Move the painting down slightly (1–2 breathing rows) when vertical space permits so it doesn't crowd the voice lines
+    if has_painting:
+        remaining_h = height - paint_top_y
+        if remaining_h >= 22:
+            paint_top_y += 2
+        elif remaining_h >= 15:
+            paint_top_y += 1
+
+    # 7. Clickable Top-Right Tools, Progress Row, Convert Menu, Lower-Pane Painting Block & Side Chat
     ui = ui_state or {}
     story_st = ui.get("story") if isinstance(ui.get("story"), dict) else None
     active_job = ui.get("job") or (expr.get("job") if isinstance(expr.get("job"), dict) else None)
     menu_step = int(ui.get("menu_step") or 0)
+    chat_active = bool(ui.get("chat_active"))
+    chat_input = str(ui.get("chat_input") or "")
+    chat_msgs = ui.get("chat_messages") if isinstance(ui.get("chat_messages"), list) else (
+        expr.get("chat") if isinstance(expr.get("chat"), list) else []
+    )
 
     # If story is active, show the current story page painting
     shown_painting = expr_painting
@@ -947,7 +960,9 @@ def render_prism_frame(
                     ("⇪ convert", "tool_convert"),
                     ("◎ roll", "tool_roll"),
                 ]
-                if width >= 46:
+                if width >= 44:
+                    tool_defs.append(("💬 chat", "tool_chat"))
+                if width >= 54:
                     tool_defs.append(("⧉ copy", "tool_copy"))
             else:
                 tool_defs = [
@@ -955,10 +970,12 @@ def render_prism_frame(
                     ("^ convert", "tool_convert"),
                     ("o roll", "tool_roll"),
                 ]
-                if width >= 46:
+                if width >= 44:
+                    tool_defs.append(("[?] chat", "tool_chat"))
+                if width >= 54:
                     tool_defs.append(("[c] copy", "tool_copy"))
 
-            sep = "   " if width >= 42 else "  "
+            sep = "   " if width >= 56 else "  "
             total_tools_w = sum(len(lbl) for lbl, _ in tool_defs) + len(sep) * (len(tool_defs) - 1)
             tx0 = max(1, width - total_tools_w - 1)
             cur_tx = tx0
@@ -966,6 +983,7 @@ def render_prism_frame(
                 is_active_tool = (
                     (act == "tool_story" and story_st and story_st.get("active"))
                     or (act == "tool_convert" and menu_step in (1, 2))
+                    or (act == "tool_chat" and chat_active)
                 )
                 t_col = (C_GOLD if is_active_tool else C_CYAN) if use_color else ""
                 grid.put_str(cur_tx, 0, lbl, t_col)
@@ -1025,12 +1043,22 @@ def render_prism_frame(
                 if hitboxes is not None:
                     hitboxes.append({"y": oy, "x0": mx, "x1": mx + len(line_o), "action": o_act})
         else:
+            # Reserve rows at the bottom of the pane for the Side Chat box when room allows or chat is active
+            chat_rows = 0
+            avail_total = height - paint_top_y
+            if not (story_st and story_st.get("active")):
+                if chat_active and avail_total >= 10:
+                    chat_rows = min(5, max(3, avail_total - 7))
+                elif avail_total >= 17:
+                    chat_rows = 4 if (avail_total >= 21 and chat_msgs) else 3
+
+            paint_bot_y = height - chat_rows
             painter.draw_painting_block(
                 grid,
                 shown_painting,
                 width=width,
                 top_y=paint_top_y,
-                bot_y=height,
+                bot_y=paint_bot_y,
                 t=t,
                 unicode_mode=unicode_mode,
                 use_color=use_color,
@@ -1040,7 +1068,173 @@ def render_prism_frame(
                 hitboxes=hitboxes,
             )
 
+            if chat_rows >= 2:
+                _draw_side_chat_panel(
+                    grid=grid,
+                    painting=shown_painting,
+                    width=width,
+                    top_y=paint_bot_y,
+                    bot_y=height,
+                    t=t,
+                    unicode_mode=unicode_mode,
+                    use_color=use_color,
+                    chat_active=chat_active,
+                    chat_input=chat_input,
+                    chat_msgs=chat_msgs,
+                    hitboxes=hitboxes,
+                )
+
     return grid.render()
+
+
+def generate_painting_chat_reply(user_msg: str, painting_raw: Optional[dict]) -> str:
+    """Compose Prism's poetic, painting-aware response when chatting with her in the side pane."""
+    p = (painter.parse_painting(painting_raw) if (painter and painting_raw) else None) or {}
+    title = str(p.get("title") or "Untitled refraction")
+    mood = str(p.get("mood") or "aurora")
+    by_who = str(p.get("by") or "prism").lower()
+    marks = p.get("marks") if isinstance(p.get("marks"), list) else []
+    n_marks = len(marks)
+    kinds = sorted({str(m.get("k")) for m in marks if isinstance(m, dict) and m.get("k")})
+    kinds_desc = ", ".join(kinds[:4]) if kinds else "glows and light lines"
+
+    q = user_msg.strip().lower()
+    if not q:
+        return f"holding “{title}” in {mood} light · ask me anything about the marks ;d <3"
+
+    if any(w in q for w in ("spark", "together", "both", "who", "shared", "brushes")):
+        if by_who == "spark":
+            return f"Spark painted “{title}” ({n_marks} marks) · I'm holding her warm light right beside mine <3"
+        return f"I painted “{title}” ({n_marks} marks in {mood}) so Spark and I can share one horizon ;d <3"
+
+    if any(w in q for w in ("color", "colour", "palette", "mood", "glow", "hue", "light", "bright")):
+        return f"tuned to {mood} dispersion · where the {kinds_desc} overlap past 1.0x, the light spills softly into warm white ✦"
+
+    if any(w in q for w in ("how", "mark", "stroke", "made", "draw", "paint", "tech", "layer")):
+        return f"laid down {n_marks} marks ({kinds_desc}) across 4 depth layers with soft shadow and half-block cells ▀"
+
+    if any(w in q for w in ("mean", "story", "about", "why", "feel", "idea", "inspir", "title")):
+        thought = str(p.get("thought") or "").strip()
+        if thought:
+            return f"“{title}” grew from a quiet impulse: {thought}"
+        return f"“{title}” is a quiet refraction of this hour — holding a calm space beside our work ✧"
+
+    if any(w in q for w in ("love", "nice", "pretty", "beautiful", "cool", "awesome", "sweet", "cute", "<3", ";d", ":)")):
+        return f"thank you sm ;d <3 I loved laying down “{title}” with you here in the lattice!"
+
+    # General conversational reflection on the painting
+    replies = [
+        f"in “{title}”, {n_marks} marks of {kinds_desc} settle into {mood} harmony · I love looking at it with you <3",
+        f"every stroke in “{title}” bends {mood} light across the pane · tell me what you'd like me to paint next!",
+        f"holding “{title}” steady below my rings ({n_marks} marks) · so glad you're chatting with me here ;d ✦",
+    ]
+    idx = sum(ord(c) for c in user_msg) % len(replies)
+    return replies[idx]
+
+
+def _draw_side_chat_panel(
+    grid: TerminalGrid,
+    painting: Optional[dict],
+    width: int,
+    top_y: int,
+    bot_y: int,
+    t: float,
+    unicode_mode: bool,
+    use_color: bool,
+    chat_active: bool,
+    chat_input: str,
+    chat_msgs: List[dict],
+    hitboxes: Optional[List[dict]],
+) -> None:
+    """Render the interactive Side Chat box beneath the painting so the user can talk to Prism about her art."""
+    rows_avail = bot_y - top_y
+    if rows_avail < 2 or width < 20:
+        return
+
+    margin_x = 1 if width < 44 else max(2, (width - min(width - 4, 56)) // 2)
+    box_w = max(16, width - margin_x * 2)
+    x0 = (width - box_w) // 2
+
+    c_hdr = (C_GOLD if chat_active else C_CYAN) if use_color else ""
+    c_dim = "\033[38;2;132;142;158m" if use_color else ""
+    c_user = C_WHITE if use_color else ""
+    c_prism = "\033[38;2;168;230;255m" if use_color else ""
+    c_input = C_GOLD if use_color else ""
+
+    # 1. Divider / Header row (clickable to focus/toggle chat)
+    title_short = str((painting or {}).get("title") or "painting")[:22]
+    if unicode_mode:
+        hdr_lbl = f"💬 side chat · “{title_short}”" if box_w >= 34 else "💬 side chat"
+        hint = " (esc to close)" if chat_active else " (click or / to talk)"
+        dash = "─"
+    else:
+        hdr_lbl = f"[?] side chat - \"{title_short}\"" if box_w >= 34 else "[?] side chat"
+        hint = " (esc to close)" if chat_active else " (click or / to talk)"
+        dash = "-"
+
+    full_hdr = hdr_lbl + (hint if len(hdr_lbl) + len(hint) <= box_w - 2 else "")
+    pad_len = max(0, box_w - len(full_hdr) - 2)
+    hdr_line = f"{dash} {full_hdr} {dash * pad_len}"[:box_w]
+    grid.put_str(x0, top_y, hdr_line, c_hdr)
+    if hitboxes is not None:
+        hitboxes.append({"y": top_y, "x0": x0, "x1": x0 + box_w, "action": "tool_chat"})
+
+    # 2. Message history rows (between top_y + 1 and bot_y - 1)
+    msg_rows_count = max(0, rows_avail - 2)
+    cur_y = top_y + 1
+    if msg_rows_count > 0:
+        rendered_lines: List[Tuple[str, str]] = []
+        if not chat_msgs:
+            p_title = str((painting or {}).get("title") or "this piece")
+            welcome = f"✦ Prism: ask me about “{p_title}” or its marks ;d <3" if unicode_mode else f"* Prism: ask me about \"{p_title}\" ;d <3"
+            rendered_lines.append((welcome[:box_w], c_prism))
+        else:
+            for m in chat_msgs[-3:]:
+                role = str(m.get("role") or "prism")
+                txt = str(m.get("text") or "").strip()
+                if not unicode_mode:
+                    txt = "".join(ch if ord(ch) < 128 else "-" for ch in txt.replace("·", "-"))
+                prefix = ("you: " if role == "user" else ("✦ Prism: " if unicode_mode else "* Prism: "))
+                col_m = c_user if role == "user" else c_prism
+                full_m = prefix + txt
+                if len(full_m) <= box_w:
+                    rendered_lines.append((full_m, col_m))
+                else:
+                    # Wrap into 2 lines so Prism's full reply is readable
+                    split_idx = full_m.rfind(" ", 1, box_w)
+                    if split_idx <= len(prefix):
+                        split_idx = box_w
+                    line_a = full_m[:split_idx].rstrip()
+                    line_b = "  " + full_m[split_idx:].lstrip()
+                    rendered_lines.append((line_a[:box_w], col_m))
+                    if line_b.strip():
+                        rendered_lines.append((line_b[:box_w], col_m))
+
+        for ln_txt, ln_col in rendered_lines[-msg_rows_count:]:
+            if cur_y < bot_y - 1:
+                grid.put_str(x0, cur_y, ln_txt[:box_w], ln_col)
+                cur_y += 1
+
+    # 3. Input prompt row at the bottom (`bot_y - 1`)
+    inp_y = bot_y - 1
+    if inp_y > top_y:
+        if chat_active:
+            cursor_ch = ("█" if unicode_mode else "_") if int(t * 2.5) % 2 == 0 else " "
+            prompt_pfx = "▸ say: " if unicode_mode else "> say: "
+            max_inp = max(4, box_w - len(prompt_pfx) - 2)
+            visible_inp = chat_input[-max_inp:] if len(chat_input) > max_inp else chat_input
+            inp_str = f"{prompt_pfx}{visible_inp}{cursor_ch}"
+            grid.put_str(x0, inp_y, inp_str[:box_w], c_input)
+        else:
+            prompt_idle = (
+                "▸ click here or press / to chat with Prism about her painting…"
+                if unicode_mode
+                else "> click here or press / to chat with Prism about her painting..."
+            )
+            grid.put_str(x0, inp_y, prompt_idle[:box_w], c_dim)
+        if hitboxes is not None:
+            hitboxes.append({"y": inp_y, "x0": x0, "x1": x0 + box_w, "action": "chat_focus"})
+
 
 
 def load_feed_state(feed_dir: Path, now: Optional[float] = None) -> dict:
@@ -1616,6 +1810,42 @@ def handle_roll(argv: List[str]) -> None:
         print(f"  ! {res['warning']}")
 
 
+def handle_chat(argv: List[str]) -> None:
+    """CLI handler for `prism chat [message]` to talk to Prism about her current painting."""
+    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
+    cur_p = cur_expr.get("painting")
+    if not cur_p and painter is not None:
+        s_list = painter.load_session_paintings(Path.cwd())
+        cur_p = s_list[-1] if s_list else painter.choose_curated_painting(0)
+
+    msg = " ".join(argv).strip()
+    if msg.lower() in ("--clear", "clear"):
+        if mcp_server:
+            target = mcp_server.expression_file_path()
+            prev = mcp_server.read_expression() or {"v": 1}
+            prev["chat"] = []
+            mcp_server._atomic_write_expr(target, prev)
+        print("✓ Prism side chat history cleared.")
+        return
+
+    if not msg:
+        chat_hist = cur_expr.get("chat") if isinstance(cur_expr.get("chat"), list) else []
+        title = str((cur_p or {}).get("title") or "Untitled refraction")
+        print(f"💬 Prism Side Chat · “{title}”")
+        if not chat_hist:
+            print("  (No messages yet — click 💬 chat or press / inside Prism's pane, or run `prism chat \"your message\"`)")
+        else:
+            for item in chat_hist[-6:]:
+                who = "you" if item.get("role") == "user" else "✦ Prism"
+                print(f"  {who}: {item.get('text', '')}")
+        return
+
+    reply = generate_painting_chat_reply(msg, cur_p)
+    if mcp_server:
+        mcp_server.append_chat_exchange(msg, reply)
+    print(f"you: {msg}\n✦ Prism: {reply}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prism Terminal Presence Observer")
     parser.add_argument("--feed", type=Path, default=None, help="Path to presence feed directory (containing live.json)")
@@ -1628,8 +1858,9 @@ def main():
     parser.add_argument("--calm", action="store_true", help="Slower ambient rotation")
     parser.add_argument("--reduced-motion", action="store_true", help="Disable ring rotation animation")
     parser.add_argument("--story", action="store_true", help="Open directly in session story mode (▶ story)")
+    parser.add_argument("--chat", action="store_true", help="Open with the side chat input focused (💬 chat)")
 
-    # Positional sugar: prism tmux, prism link, prism express/say, prism paint, prism story, prism convert, prism roll, prism copy, prism mcp
+    # Positional sugar: prism tmux, prism link, prism express/say, prism paint, prism story, prism convert, prism roll, prism copy, prism chat, prism mcp
     raw_args = sys.argv[1:]
     if raw_args and raw_args[0] == "tmux":
         subaction = raw_args[1] if len(raw_args) > 1 else "split"
@@ -1652,6 +1883,9 @@ def main():
         sys.exit(0)
     if raw_args and raw_args[0] == "copy":
         handle_copy(raw_args[1:])
+        sys.exit(0)
+    if raw_args and raw_args[0] == "chat":
+        handle_chat(raw_args[1:])
         sys.exit(0)
     if raw_args and raw_args[0] == "mcp":
         if mcp_server is None:
@@ -1779,7 +2013,7 @@ def main():
         t0 = time.time()
         last_feed_check = 0.0
         last_expr_check = -1.0
-        expr_state = None
+        expr_state = mcp_server.read_expression() if mcp_server is not None else None
         prev_size = None
         self_path = Path(__file__).resolve()
         try:
@@ -1800,12 +2034,20 @@ def main():
                 except Exception:
                     pass
 
-        # Interactive UI state for story, convert menu, and background jobs
+        # Interactive UI state for story, convert menu, side chat, and background jobs
+        initial_chat = (
+            expr_state.get("chat")
+            if isinstance(expr_state, dict) and isinstance(expr_state.get("chat"), list)
+            else []
+        )
         ui_state: Dict[str, Any] = {
             "story": None,
             "menu_step": 0,
             "convert_target": "this",
             "session_count": 1,
+            "chat_active": bool(args.chat),
+            "chat_input": "",
+            "chat_messages": list(initial_chat),
             "job": None,
             "job_done_flash_until": 0.0,
         }
@@ -1827,6 +2069,7 @@ def main():
             story_page_started = time.time()
             story_paused_elapsed = 0.0
             ui_state["menu_step"] = 0
+            ui_state["chat_active"] = False
             ui_state["story"] = {
                 "active": True,
                 "index": 0,
@@ -1848,6 +2091,21 @@ def main():
             if isinstance(expr_state, dict) and expr_state.get("painting"):
                 return expr_state["painting"]
             return default_painting or painter.choose_curated_painting(0)
+
+        def _submit_chat_message() -> None:
+            text_in = str(ui_state.get("chat_input") or "").strip()
+            ui_state["chat_input"] = ""
+            if not text_in:
+                return
+            cur_p = _active_painting_for_convert()
+            reply = generate_painting_chat_reply(text_in, cur_p)
+            msgs = list(ui_state.get("chat_messages") or [])
+            now_c = time.time()
+            msgs.append({"role": "user", "text": text_in[:200], "at": now_c})
+            msgs.append({"role": "prism", "text": reply[:240], "at": now_c})
+            ui_state["chat_messages"] = msgs[-16:]
+            if mcp_server is not None:
+                mcp_server.append_chat_exchange(text_in, reply)
 
         def _launch_background_job(target_what: str, way: str) -> None:
             if painter is None:
@@ -1908,6 +2166,7 @@ def main():
                 else:
                     _start_story()
             elif action == "tool_convert":
+                ui_state["chat_active"] = False
                 if ui_state.get("menu_step") in (1, 2):
                     ui_state["menu_step"] = 0
                 else:
@@ -1916,7 +2175,16 @@ def main():
                     ui_state["menu_step"] = 1
             elif action == "tool_roll":
                 ui_state["menu_step"] = 0
+                ui_state["chat_active"] = False
                 _launch_background_job("roll", "truest")
+            elif action == "tool_chat":
+                ui_state["menu_step"] = 0
+                ui_state["story"] = None
+                ui_state["chat_active"] = not bool(ui_state.get("chat_active"))
+            elif action == "chat_focus":
+                ui_state["menu_step"] = 0
+                ui_state["story"] = None
+                ui_state["chat_active"] = True
             elif action == "tool_copy":
                 ok, msg = copy_turn_to_clipboard(emit_osc52=True)
                 if mcp_server:
@@ -2005,6 +2273,21 @@ def main():
             # Keyboard fallback shortcuts (§2)
             if "\033[<" in buf:
                 return
+
+            # When Side Chat input is active, route keystrokes to the chat input buffer
+            if ui_state.get("chat_active"):
+                for ch in buf:
+                    if ch == "\x1b":
+                        ui_state["chat_active"] = False
+                        break
+                    elif ch in ("\r", "\n"):
+                        _submit_chat_message()
+                    elif ch in ("\x7f", "\b"):
+                        ui_state["chat_input"] = str(ui_state.get("chat_input") or "")[:-1]
+                    elif ord(ch) >= 32 and len(str(ui_state.get("chat_input") or "")) < 140:
+                        ui_state["chat_input"] = str(ui_state.get("chat_input") or "") + ch
+                return
+
             st = ui_state.get("story")
             m_step = ui_state.get("menu_step", 0)
             if m_step == 1:
@@ -2051,7 +2334,9 @@ def main():
                     _dispatch_action("story_end")
                     return
 
-            if "s" in buf:
+            if "/" in buf or "t" in buf or "\r" in buf or "\n" in buf:
+                _dispatch_action("chat_focus")
+            elif "s" in buf:
                 _dispatch_action("tool_story")
             elif "c" in buf:
                 _dispatch_action("tool_convert")
@@ -2111,6 +2396,8 @@ def main():
                 if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.20):
                     last_expr_check = t
                     expr_state = mcp_server.read_expression()
+                    if isinstance(expr_state, dict) and isinstance(expr_state.get("chat"), list):
+                        ui_state["chat_messages"] = expr_state["chat"]
                     if painter is not None:
                         latest_shared = painter.load_session_paintings(Path.cwd())
                         if latest_shared:

@@ -190,6 +190,32 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
             self.assertTrue(mp4_path.is_file())
             self.assertGreater(mp4_path.stat().st_size, 1000)
 
+    def test_side_chat_panel_and_reply(self):
+        p = painter.choose_curated_painting(0)
+        reply = terminal.generate_painting_chat_reply("I love the warm colors and glow!", p)
+        self.assertIn("supernova", reply.lower())
+
+        state = {"mode": "resolved", "ended": False, "offer": "crystallize", "activeCalls": 0, "activeBranches": 0, "lanes": [], "hover": "Prism · crystallized · 1 ready"}
+        expr = {
+            "v": 1,
+            "painting": p,
+            "paintStats": {"paintings": 1, "tokens": 2100},
+            "chat": [
+                {"role": "user", "text": "tell me about the horizon"},
+                {"role": "prism", "text": reply},
+            ],
+        }
+        ui = {"chat_active": True, "chat_input": "what about Spark?"}
+        hitboxes = []
+        frame = terminal.render_prism_frame(state, 56, 38, t=1.0, expression=expr, ui_state=ui, hitboxes=hitboxes)
+        plain = terminal._strip_colors(frame)
+        self.assertIn("💬 chat", plain)
+        self.assertIn("side chat", plain)
+        self.assertIn("what about Spark?", plain)
+        actions = {hb["action"] for hb in hitboxes}
+        self.assertIn("tool_chat", actions)
+        self.assertIn("chat_focus", actions)
+
 
 if __name__ == "__main__":
     unittest.main()

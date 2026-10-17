@@ -135,6 +135,7 @@ def write_expression(
     )
 
     active_job = prev.get("job") if job is None else (job if job.get("active") else None)
+    chat_history = prev.get("chat") if isinstance(prev.get("chat"), list) else []
 
     payload = {
         "v": 1,
@@ -145,6 +146,7 @@ def write_expression(
         "art": clean_art,
         "painting": active_painting,
         "paintStats": paint_stats,
+        "chat": chat_history[-16:],
         "job": active_job,
         "updatedAt": now,
         "expiresAt": (now + ttl_val) if ttl_val > 0 else None,
@@ -152,6 +154,31 @@ def write_expression(
 
     _atomic_write_expr(target, payload)
     return payload
+
+
+def append_chat_exchange(
+    user_text: str,
+    prism_reply: str,
+    *,
+    environ: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """Append a user message and Prism's painting-chat response to expression.json."""
+    target = expression_file_path(environ)
+    prev = read_expression(environ) or {"v": 1}
+    now = time.time()
+    chat_list = prev.get("chat") if isinstance(prev.get("chat"), list) else []
+    if user_text.strip():
+        chat_list.append({"role": "user", "text": str(user_text).strip()[:200], "at": now})
+    if prism_reply.strip():
+        chat_list.append({"role": "prism", "text": str(prism_reply).strip()[:240], "at": now})
+    chat_list = chat_list[-16:]
+    prev["chat"] = chat_list
+    prev["updatedAt"] = now
+    try:
+        _atomic_write_expr(target, prev)
+    except Exception:
+        pass
+    return chat_list
 
 
 def update_job_progress(
@@ -253,6 +280,7 @@ def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[floa
                 "art": [],
                 "painting": best_data.get("painting"),
                 "paintStats": best_data.get("paintStats"),
+                "chat": best_data.get("chat") if isinstance(best_data.get("chat"), list) else [],
                 "job": best_data.get("job"),
             }
         return None
