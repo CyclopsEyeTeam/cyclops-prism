@@ -497,7 +497,9 @@ def render_roll_painting_frame(
         art_h = int(art_w * 0.62)
         art_x = (width - art_w) // 2
         art_y = int(height * 0.24)
-        art_img = painter.render_painting_canvas_pil(painting, art_w, art_h, reveal=reveal, truest=True)
+        art_img = painter.render_painting_canvas_pil(
+            painting, art_w, art_h, reveal=reveal, truest=True, work_max_w=320.0, yield_burst=False
+        )
         frame.paste(art_img, (art_x, art_y))
 
         draw = ImageDraw.Draw(frame)
@@ -511,7 +513,9 @@ def render_roll_painting_frame(
         caption_h = int(height * 0.14)
         art_h = height - caption_h
         art_w = width
-        art_img = painter.render_painting_canvas_pil(painting, art_w, art_h, reveal=reveal, truest=True)
+        art_img = painter.render_painting_canvas_pil(
+            painting, art_w, art_h, reveal=reveal, truest=True, work_max_w=320.0, yield_burst=False
+        )
         frame.paste(art_img, (0, 0))
 
         draw = ImageDraw.Draw(frame)
@@ -610,22 +614,29 @@ def build_session_roll(
         title_frames_dir.mkdir(parents=True, exist_ok=True)
         title_img = render_title_card_image(width, height, proj_title, subtitle, music_info["session_rgb"])
         first_paint_img = render_roll_painting_frame(
-            paintings[0], width, height, reveal=1.0 / 12.0, index_1=1, total_paintings=n_paintings, short_mode=short_mode
+            paintings[0], width, height, reveal=1.0 / 10.0, index_1=1, total_paintings=n_paintings, short_mode=short_mode
         )
         n_title_frames = max(18, int(round(title_s * FPS)))
         fade_frames = min(12, n_title_frames // 3)
+        saved_title_src: Optional[Path] = None
         for f_i in range(n_title_frames):
+            dst_p = title_frames_dir / f"f_{f_i:05d}.png"
             if f_i < 8:
                 # Fade in from dark ground
                 alpha = (f_i + 1) / 8.0
                 dark = Image.new("RGB", (width, height), (20, 18, 24))
                 fr = Image.blend(dark, title_img, alpha)
+                fr.save(dst_p, format="PNG", compress_level=1)
             elif f_i >= n_title_frames - fade_frames:
                 alpha = (f_i - (n_title_frames - fade_frames) + 1) / float(fade_frames)
                 fr = Image.blend(title_img, first_paint_img, alpha)
+                fr.save(dst_p, format="PNG", compress_level=1)
             else:
-                fr = title_img
-            fr.save(title_frames_dir / f"f_{f_i:05d}.png", format="PNG", compress_level=1)
+                if saved_title_src is None:
+                    title_img.save(dst_p, format="PNG", compress_level=1)
+                    saved_title_src = dst_p
+                else:
+                    os.link(saved_title_src, dst_p)
         seg_title_mp4 = tmp_root / "seg_000.mp4"
         _encode_frames_to_segment(title_frames_dir, seg_title_mp4)
         segment_files.append(seg_title_mp4)
@@ -639,8 +650,8 @@ def build_session_roll(
             seg_dir = tmp_root / f"seg_p_{idx:03d}"
             seg_dir.mkdir(parents=True, exist_ok=True)
 
-            # Laydown: 2s at 12 fps (24 key frames), smoothed to 30 fps (60 frames)
-            n_key = int(round(LAYDOWN_S * 12))  # 24 steps
+            # Laydown: 2s key frames smoothed to 30 fps (60 frames)
+            n_key = max(6, min(10, len(p.get("marks") or []) or 10))
             key_imgs: List[Image.Image] = []
             for k_i in range(1, n_key + 1):
                 rev = k_i / float(n_key)
@@ -649,7 +660,7 @@ def build_session_roll(
                         p, width, height, reveal=rev, index_1=idx + 1, total_paintings=n_paintings, short_mode=short_mode
                     )
                 )
-                if k_i % 6 == 0:
+                if k_i % 3 == 0:
                     _report(
                         f"laying down “{p_title}” · {idx + 1}/{n_paintings}",
                         base_frac + (k_i / float(n_key)) * (0.5 / max(1, n_paintings)),
@@ -674,8 +685,14 @@ def build_session_roll(
             has_next = idx < n_paintings - 1
             pure_hold_s = max(0.2, hold_s - (CROSSFADE_S if has_next else 0.0))
             n_hold_frames = max(6, int(round(pure_hold_s * FPS)))
+            saved_hold_src: Optional[Path] = None
             for _ in range(n_hold_frames):
-                held_img.save(seg_dir / f"f_{frame_counter:05d}.png", format="PNG", compress_level=1)
+                dst_p = seg_dir / f"f_{frame_counter:05d}.png"
+                if saved_hold_src is None:
+                    held_img.save(dst_p, format="PNG", compress_level=1)
+                    saved_hold_src = dst_p
+                else:
+                    os.link(saved_hold_src, dst_p)
                 frame_counter += 1
 
             # Crossfade (0.6 s = 18 frames) into the next painting
@@ -684,7 +701,7 @@ def build_session_roll(
                     paintings[idx + 1],
                     width,
                     height,
-                    reveal=1.0 / 12.0,
+                    reveal=1.0 / 10.0,
                     index_1=idx + 2,
                     total_paintings=n_paintings,
                     short_mode=short_mode,

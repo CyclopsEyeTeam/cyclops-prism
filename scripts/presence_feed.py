@@ -107,9 +107,13 @@ def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]
 
     sessions_dir = state_home / "gemini-prism" / "sessions"
     try:
-        current_cwd = os.path.realpath(os.getcwd())
+        current_cwd = os.path.realpath(env.get("PRISM_PROJECT_DIR") or os.getcwd())
     except OSError:
         current_cwd = ""
+    try:
+        home_real = os.path.realpath(home) if home else ""
+    except OSError:
+        home_real = ""
 
     best_path = None
     best_score = -float("inf")
@@ -145,7 +149,8 @@ def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]
                 # Check corresponding session state record for producer liveness & workspace match
                 session_hash = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
                 state_path = sessions_dir / f"{session_hash}.state.json"
-                ws_match = False
+                exact_ws_match = False
+                parent_ws_match = False
                 is_prod_alive = False
                 has_dead_producer = False
 
@@ -158,8 +163,15 @@ def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]
                             pid = producer.get("pid")
                             try:
                                 proc_cwd = os.path.realpath(f"/proc/{pid}/cwd")
-                                if current_cwd and (proc_cwd == current_cwd or current_cwd.startswith(proc_cwd)):
-                                    ws_match = True
+                                if current_cwd and proc_cwd == current_cwd:
+                                    exact_ws_match = True
+                                elif (
+                                    current_cwd
+                                    and proc_cwd
+                                    and proc_cwd != home_real
+                                    and current_cwd.startswith(proc_cwd.rstrip("/") + "/")
+                                ):
+                                    parent_ws_match = True
                             except OSError:
                                 pass
                         elif producer:
@@ -174,8 +186,10 @@ def find_active_feed(environ: Optional[Dict[str, str]] = None) -> Optional[Path]
                 # Scoring: prioritize active session in current workspace with real recent events
                 score = max(last_event_t, file_mtime - 3600.0)
 
-                if ws_match:
-                    score += 10_000_000.0  # Strongly favor current workspace
+                if exact_ws_match:
+                    score += 20_000_000.0  # Strongly favor exact current workspace match
+                elif parent_ws_match:
+                    score += 5_000_000.0   # Favor parent project directory (excluding $HOME)
                 if is_prod_alive:
                     score += 1_000_000.0   # Favor live host processes
                 if events:

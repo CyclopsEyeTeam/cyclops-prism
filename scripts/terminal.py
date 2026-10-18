@@ -11,6 +11,7 @@ Renders Prism's living crystalline geometry and semantic state directly in CLI:
 
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
@@ -1647,29 +1648,116 @@ def handle_link(subcmd: str = "status") -> None:
         print(f"  · thread {th['from']} → {th['to']}")
 
 
-def copy_turn_to_clipboard(custom_text: Optional[str] = None, emit_osc52: bool = False) -> Tuple[bool, str]:
+def copy_turn_to_clipboard(
+    custom_text: Optional[str] = None,
+    emit_osc52: bool = False,
+    project_dir: Optional[Path] = None,
+    feed_dir: Optional[Path] = None,
+) -> Tuple[bool, str]:
     """§6 Copy (`⧉ copy`): put what was said to you and your whole reply on the clipboard.
-    Terminal selection splits rows when a pane sits beside the conversation.
+    Strictly scoped to this terminal's workspace directory and session feed so it never copies from other terminals.
     """
     text_to_copy = (custom_text or "").strip()
+    proj = Path(project_dir or os.environ.get("PRISM_PROJECT_DIR") or Path.cwd()).resolve()
     if not text_to_copy:
-        # Locate the most recent active Antigravity conversation transcript
         home = Path(os.environ.get("HOME") or os.path.expanduser("~"))
-        brain_root = home / ".gemini" / "antigravity-cli" / "brain"
+        state_home = Path(os.environ.get("XDG_STATE_HOME") or (home / ".local" / "state"))
+        sessions_dir = state_home / "gemini-prism" / "sessions"
+        try:
+            proj_real = os.path.realpath(str(proj))
+        except OSError:
+            proj_real = str(proj)
+
+        # 1. Discover conversationIds belonging to this workspace directory
+        workspace_conv_ids: set = set()
+        eff_feed = feed_dir
+        if eff_feed is None and presence_feed is not None and hasattr(presence_feed, "find_active_feed"):
+            eff_feed = presence_feed.find_active_feed()
+        if eff_feed and eff_feed.is_dir():
+            sid = eff_feed.parent.name if eff_feed.name == "prism" else eff_feed.name
+            if sid:
+                sh = hashlib.sha256(sid.encode("utf-8")).hexdigest()
+                st_path = sessions_dir / f"{sh}.state.json"
+                if st_path.is_file():
+                    try:
+                        rec = json.loads(st_path.read_text(encoding="utf-8"))
+                        prod = rec.get("producer") or {}
+                        pid = prod.get("pid")
+                        if pid and Path(f"/proc/{pid}/cwd").exists():
+                            if os.path.realpath(f"/proc/{pid}/cwd") == proj_real:
+                                workspace_conv_ids.add(str(rec.get("conversationId") or sid))
+                    except Exception:
+                        pass
+
+        if sessions_dir.is_dir():
+            for st_file in sessions_dir.glob("*.state.json"):
+                try:
+                    rec = json.loads(st_file.read_text(encoding="utf-8"))
+                    prod = rec.get("producer") or {}
+                    pid = prod.get("pid")
+                    if pid and Path(f"/proc/{pid}/cwd").exists():
+                        proc_cwd = os.path.realpath(f"/proc/{pid}/cwd")
+                        if proc_cwd == proj_real:
+                            cid = rec.get("conversationId") or rec.get("sessionId")
+                            if cid:
+                                workspace_conv_ids.add(str(cid))
+                except Exception:
+                    pass
+
+        brain_roots = [
+            home / ".gemini" / "antigravity-cli" / "brain",
+            home / ".gemini" / "antigravity" / "brain",
+        ]
+
+        def _find_cand_in_conv(conv_dir: Path) -> Optional[Path]:
+            for fname in ("transcript_full.jsonl", "transcript.jsonl"):
+                cand = conv_dir / ".system_generated" / "logs" / fname
+                if cand.is_file():
+                    return cand
+            return None
+
         best_transcript = None
-        best_mtime = -1.0
-        if brain_root.is_dir():
-            for conv_dir in brain_root.iterdir():
-                for fname in ("transcript_full.jsonl", "transcript.jsonl"):
-                    cand = conv_dir / ".system_generated" / "logs" / fname
-                    if cand.is_file():
+        best_score = -1.0
+
+        # Priority A: Conversations explicitly bound to this workspace's live agy process
+        if workspace_conv_ids:
+            for b_root in brain_roots:
+                if not b_root.is_dir():
+                    continue
+                for cid in workspace_conv_ids:
+                    cand = _find_cand_in_conv(b_root / cid)
+                    if cand is not None:
                         try:
                             mt = cand.stat().st_mtime
-                            if mt > best_mtime:
-                                best_mtime = mt
+                            raw_head = cand.read_text(encoding="utf-8", errors="replace")
+                            # Prefer main user conversations (<USER_REQUEST>) over internal subagent logs
+                            bonus = 1e9 if "<USER_REQUEST>" in raw_head else 0.0
+                            sc = mt + bonus
+                            if sc > best_score:
+                                best_score = sc
                                 best_transcript = cand
                         except OSError:
                             pass
+
+        # Priority B: Fallback scan of transcripts that reference this project directory path
+        if best_transcript is None:
+            for b_root in brain_roots:
+                if not b_root.is_dir():
+                    continue
+                for conv_dir in b_root.iterdir():
+                    cand = _find_cand_in_conv(conv_dir)
+                    if cand is None:
+                        continue
+                    try:
+                        mt = cand.stat().st_mtime
+                        txt = cand.read_text(encoding="utf-8", errors="replace")
+                        if proj_real in txt and "<USER_REQUEST>" in txt:
+                            if mt > best_score:
+                                best_score = mt
+                                best_transcript = cand
+                    except OSError:
+                        pass
+
         if best_transcript:
             last_user = ""
             last_replies: List[str] = []
@@ -1683,8 +1771,12 @@ def copy_turn_to_clipboard(custom_text: Optional[str] = None, emit_osc52: bool =
                     if typ == "USER_INPUT" and content:
                         # Strip <USER_REQUEST> wrapper tags if present
                         m_req = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content, flags=re.DOTALL)
-                        last_user = m_req.group(1).strip() if m_req else content
-                        last_replies.clear()
+                        if m_req:
+                            last_user = m_req.group(1).strip()
+                            last_replies.clear()
+                        elif not last_user:
+                            last_user = content
+                            last_replies.clear()
                     elif typ == "PLANNER_RESPONSE" and content:
                         last_replies.append(content)
             except Exception:
@@ -1698,7 +1790,7 @@ def copy_turn_to_clipboard(custom_text: Optional[str] = None, emit_osc52: bool =
                 text_to_copy = last_user
 
     if not text_to_copy and mcp_server is not None:
-        expr = mcp_server.read_expression() or {}
+        expr = mcp_server.read_expression(project_dir=proj) or {}
         if expr.get("thought"):
             text_to_copy = str(expr["thought"])
 
@@ -1735,7 +1827,7 @@ def copy_turn_to_clipboard(custom_text: Optional[str] = None, emit_osc52: bool =
 def handle_copy(argv: List[str]) -> None:
     """CLI handler for `prism copy`."""
     custom = " ".join(argv).strip() if argv else None
-    ok, msg = copy_turn_to_clipboard(custom_text=custom, emit_osc52=True)
+    ok, msg = copy_turn_to_clipboard(custom_text=custom, emit_osc52=True, project_dir=Path.cwd())
     if ok:
         print(f"⧉ {msg}")
     else:
@@ -1931,6 +2023,7 @@ def handle_convert(argv: List[str]) -> None:
     cp.add_argument("tokens", nargs="*", help="[this|every|all|session|dir|roll] [truest|layered|faithful|refined|interpretive] [hd|4k]")
     cp.add_argument("--way", choices=["truest", "layered", "faithful", "refined", "interpretive"], default=None)
     cp.add_argument("--size", choices=["hd", "4k"], default="hd")
+    cp.add_argument("--scope", choices=["session", "dir"], default=None, help="Scope for all/session conversion")
     cp.add_argument("--out", type=Path, default=None)
     cp.add_argument("--file", type=Path, default=None, help="Specific painting JSON file to convert")
     cp.add_argument("--progress-json", action="store_true", help="Emit JSON progress lines for parent UI pipe")
@@ -1958,16 +2051,18 @@ def handle_convert(argv: List[str]) -> None:
 
     if what == "roll":
         roll_args = [size if size == "hd" else "720p"]
+        if parsed.scope:
+            roll_args.extend(["--scope", parsed.scope])
         if parsed.progress_json:
             roll_args.append("--progress-json")
         handle_roll(roll_args)
         return
 
     out_dir = parsed.out or (Path.cwd() / "prism-paintings")
-    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
-    cur_scope = str(cur_expr.get("paintScope") or "session").lower()
+    cur_expr = (mcp_server.read_expression(project_dir=Path.cwd()) or {}) if mcp_server else {}
+    cur_scope = str(parsed.scope or cur_expr.get("paintScope") or "session").lower()
     s_start = 0.0 if (what == "dir" or cur_scope == "dir") else float(cur_expr.get("sessionStart") or 0.0)
-    session_paintings = painter.load_session_paintings(Path.cwd(), session_start=s_start)
+    session_paintings = painter.load_session_paintings(Path.cwd(), session_start=s_start, strict_session=(s_start > 0.0))
     cur_p = None
     if parsed.file and parsed.file.is_file():
         try:
@@ -2033,6 +2128,7 @@ def handle_roll(argv: List[str]) -> None:
     rp = argparse.ArgumentParser(prog="prism roll", description="Build the session MP4 video & procedural music roll")
     rp.add_argument("mode", nargs="?", default="720p", help="Resolution mode: 720p (default), hd (1080p), or short (1080x1920 upright)")
     rp.add_argument("--dir", action="store_true", help="Include all saved paintings in directory rather than current session only")
+    rp.add_argument("--scope", choices=["session", "dir"], default=None, help="Scope for roll: session or dir")
     rp.add_argument("--out", type=Path, default=None)
     rp.add_argument("--progress-json", action="store_true", help="Emit JSON progress lines for parent UI pipe")
     parsed = rp.parse_args(argv)
@@ -2042,10 +2138,10 @@ def handle_roll(argv: List[str]) -> None:
         mode_str = "720p"
 
     out_dir = parsed.out or (Path.cwd() / "prism-paintings")
-    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
-    cur_scope = str(cur_expr.get("paintScope") or "session").lower()
+    cur_expr = (mcp_server.read_expression(project_dir=Path.cwd()) or {}) if mcp_server else {}
+    cur_scope = str(parsed.scope or cur_expr.get("paintScope") or "session").lower()
     s_start = 0.0 if (parsed.dir or cur_scope == "dir") else float(cur_expr.get("sessionStart") or 0.0)
-    paintings = painter.load_session_paintings(Path.cwd(), session_start=s_start)
+    paintings = painter.load_session_paintings(Path.cwd(), session_start=s_start, strict_session=(s_start > 0.0))
     if not paintings:
         paintings = [cur_expr.get("painting") or painter.generate_opening_painting()]
 
@@ -2066,7 +2162,9 @@ def handle_roll(argv: List[str]) -> None:
                 sys.stdout.flush()
 
     res = roll.build_session_roll(paintings, out_dir, mode=mode_str, on_progress=_prog)
-    if not parsed.progress_json:
+    if parsed.progress_json:
+        _prog(f"saved {Path(res['path']).name} ({res['paintings']}p · {res['duration']}s)", 1.0)
+    else:
         if mcp_server:
             mcp_server.update_job_progress("", 1.0, done=True)
         print(f"\n◎ Session roll created: {res['path']} ({res['paintings']} paintings · {res['duration']}s · music in {res['key']})")
@@ -2554,7 +2652,7 @@ def main():
                         cmd,
                         cwd=str(project_dir),
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
                         text=True,
                         preexec_fn=_lower_priority if os.name == "posix" else None,
                     )
@@ -2573,14 +2671,27 @@ def main():
                                     }
                             except Exception:
                                 pass
-                    proc.wait()
+                    rc = proc.wait()
+                    if rc != 0:
+                        err_txt = ""
+                        if proc.stderr is not None:
+                            try:
+                                err_txt = proc.stderr.read().strip().splitlines()[-1]
+                            except Exception:
+                                err_txt = ""
+                        with job_lock:
+                            ui_state["job"] = {
+                                "active": True,
+                                "label": f"error: {(err_txt or f'exit {rc}')[:28]}",
+                                "fraction": 1.0,
+                            }
                 except Exception as exc:
                     with job_lock:
                         ui_state["job"] = {"active": True, "label": f"error: {str(exc)[:28]}", "fraction": 1.0}
                 finally:
-                    # Keep 100% visible briefly (0.8s) and ALWAYS clear & redraw when job ends (§2)
+                    # Keep 100% completion message visible briefly (1.8s) and ALWAYS clear & redraw when job ends (§2)
                     with job_lock:
-                        ui_state["job_done_flash_until"] = time.time() + 0.8
+                        ui_state["job_done_flash_until"] = time.time() + 1.8
 
             t_worker = threading.Thread(target=_worker, daemon=True)
             t_worker.start()
@@ -2649,7 +2760,7 @@ def main():
                 ui_state["story"] = None
                 ui_state["chat_active"] = True
             elif action == "tool_copy":
-                ok, msg = copy_turn_to_clipboard(emit_osc52=True)
+                ok, msg = copy_turn_to_clipboard(emit_osc52=True, project_dir=project_dir, feed_dir=feed_dir)
                 if mcp_server:
                     mcp_server.write_expression(
                         thought=f"⧉ {msg}",

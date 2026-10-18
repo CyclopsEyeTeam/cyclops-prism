@@ -848,6 +848,38 @@ OPENING_WORDS = (
     "chime",
     "reed",
     "aperture",
+    "solstice",
+    "vesper",
+    "canopy",
+    "prism",
+    "mirage",
+    "cascade",
+    "zenith",
+    "aurora",
+    "gossamer",
+    "halo",
+    "compass",
+    "beacon",
+    "cairn",
+    "meridian",
+    "estuary",
+    "cove",
+    "sill",
+    "terrace",
+    "arc",
+    "chord",
+    "lumen",
+    "flare",
+    "crest",
+    "spindle",
+    "facet",
+    "glint",
+    "atoll",
+    "spire",
+    "bloom",
+    "fjord",
+    "vale",
+    "observatory",
 )
 
 
@@ -868,8 +900,8 @@ def _hour_phrase(hour: int) -> str:
 
 def generate_opening_painting(now: Optional[float] = None, seed_word: Optional[str] = None) -> dict:
     """§6 Your opening: a session's first painting is Prism's, about nothing in the conversation.
-    Seeded with ONLY the hour (dawn / morning / afternoon / evening / night / the small hours),
-    the month, and one random word to start from.
+    Seeded with the hour (dawn / morning / afternoon / evening / night / the small hours),
+    the month, and one random word to start from, with procedural composition & palette variety.
     """
     ts = time.time() if now is None else float(now)
     lt = time.localtime(ts)
@@ -877,55 +909,138 @@ def generate_opening_painting(now: Optional[float] = None, seed_word: Optional[s
     month_name = time.strftime("%B", lt)
     word = (seed_word or random.choice(OPENING_WORDS)).strip().lower()
 
-    # Palette by hour bucket
-    palettes = {
-        "the small hours": ("#090814", "#18132c", "#00f2fe", "#c48cff", "#ffe6d6", "aurora"),
-        "dawn": ("#160e20", "#341b32", "#f59466", "#ffbd75", "#fff4ea", "solar"),
-        "morning": ("#0b192c", "#1a3654", "#00e5a3", "#82ffd2", "#fff6d6", "emerald"),
-        "afternoon": ("#141828", "#28324e", "#ffb020", "#00f2fe", "#ffffff", "crystalline"),
-        "evening": ("#1a1026", "#381c38", "#ff6eb4", "#ffb020", "#ffe6d6", "supernova"),
-        "night": ("#080b18", "#141d38", "#7928ca", "#00f2fe", "#e8e2ea", "nebula"),
+    # Multiple palettes per hour bucket so openings in the same time of day still feel distinct
+    bucket_palettes = {
+        "the small hours": [
+            ("#090814", "#18132c", "#00f2fe", "#c48cff", "#ffe6d6", "aurora"),
+            ("#060b18", "#122238", "#82ffd2", "#00f2fe", "#ffffff", "emerald"),
+            ("#0d071a", "#211235", "#ff6eb4", "#c48cff", "#fff4ea", "nebula"),
+        ],
+        "dawn": [
+            ("#160e20", "#341b32", "#f59466", "#ffbd75", "#fff4ea", "solar"),
+            ("#180c1c", "#3a1c2e", "#ff6eb4", "#ffb020", "#ffffff", "supernova"),
+            ("#0f1426", "#282644", "#ffb020", "#00f2fe", "#fff6d6", "crystalline"),
+        ],
+        "morning": [
+            ("#0b192c", "#1a3654", "#00e5a3", "#82ffd2", "#fff6d6", "emerald"),
+            ("#091628", "#1b3252", "#00f2fe", "#ffb020", "#ffffff", "aurora"),
+            ("#0d1b24", "#1e3a46", "#82ffd2", "#c48cff", "#fff6e6", "crystalline"),
+        ],
+        "afternoon": [
+            ("#141828", "#28324e", "#ffb020", "#00f2fe", "#ffffff", "crystalline"),
+            ("#0c182c", "#1c3654", "#00f2fe", "#00e5a3", "#fff6d6", "aurora"),
+            ("#1a1428", "#322446", "#f59466", "#c48cff", "#ffffff", "solar"),
+        ],
+        "evening": [
+            ("#1a1026", "#381c38", "#ff6eb4", "#ffb020", "#ffe6d6", "supernova"),
+            ("#120d24", "#2a1b42", "#c48cff", "#00f2fe", "#fff4ea", "nebula"),
+            ("#1c111e", "#3a202c", "#f59466", "#ff6eb4", "#ffffff", "solar"),
+        ],
+        "night": [
+            ("#080b18", "#141d38", "#7928ca", "#00f2fe", "#e8e2ea", "nebula"),
+            ("#060c1a", "#12243c", "#00f2fe", "#00e5a3", "#fff6d6", "aurora"),
+            ("#0d0818", "#221434", "#c48cff", "#ff6eb4", "#ffffff", "supernova"),
+        ],
     }
-    sky_top, sky_bot, c_pri, c_sec, c_star, mood = palettes.get(h_phrase, palettes["the small hours"])
 
-    # Deterministic geometry offsets from (word, month_name, h_phrase)
-    seed_val = sum((i + 1) * ord(ch) for i, ch in enumerate(f"{h_phrase}:{month_name}:{word}"))
-    rng = _rng(seed_val)
-    horizon_y = round(0.58 + 0.14 * rng(), 3)
-    focal_x = round(0.32 + 0.36 * rng(), 3)
-    focal_y = round(0.28 + 0.26 * rng(), 3)
+    word_hash = sum((i + 1) * ord(ch) for i, ch in enumerate(f"{h_phrase}:{month_name}:{word}"))
+    entropy = word_hash if seed_word is not None else (word_hash ^ int(ts * 1000) ^ random.getrandbits(24))
+    rng = _rng(entropy)
+
+    p_list = bucket_palettes.get(h_phrase, bucket_palettes["the small hours"])
+    sky_top, sky_bot, c_pri, c_sec, c_star, mood = p_list[int(rng() * len(p_list)) % len(p_list)]
+
+    horizon_y = round(0.54 + 0.18 * rng(), 3)
+    focal_x = round(0.24 + 0.52 * rng(), 3)
+    focal_y = round(0.22 + 0.28 * rng(), 3)
+    comp_style = int(rng() * 6) % 6
+    mirror = "x" if comp_style == 4 else None
 
     title = f"{word.capitalize()} in {h_phrase} of {month_name}"[:TITLE_CHARS]
-    marks = [
+    marks: List[dict] = [
         {"k": "fill", "pts": [[0.0, 0.0], [1.0, 0.0], [1.0, horizon_y], [0.0, horizon_y]], "c": sky_top, "c2": sky_bot, "grad": 0.25, "a": 0.96},
         {"k": "fill", "pts": [[0.0, horizon_y], [1.0, horizon_y], [1.0, 1.0], [0.0, 1.0]], "c": sky_bot, "c2": "#07060c", "grad": 0.25, "a": 0.98},
-        {"k": "glow", "x": focal_x, "y": focal_y, "r": 0.38, "c": c_pri, "a": 0.62},
-        {"k": "glow", "x": round(1.0 - focal_x, 3), "y": horizon_y, "r": 0.32, "c": c_sec, "a": 0.52},
-        {"k": "line", "pts": [[0.03, horizon_y], [0.97, horizon_y]], "w": 0.012, "c": c_pri, "c2": c_sec, "a": 0.78},
-        {
-            "k": "curve",
-            "pts": [
-                [0.12, round(horizon_y + 0.14, 3)],
-                [focal_x, focal_y],
-                [0.88, round(horizon_y - 0.12, 3)],
-            ],
-            "w": 0.018,
-            "c": c_sec,
-            "c2": c_pri,
-            "a": 0.88,
-        },
-        {"k": "ring", "x": focal_x, "y": focal_y, "r": 0.14, "w": 0.012, "c": c_star, "a": 0.72},
-        {"k": "arc", "x": focal_x, "y": focal_y, "r": 0.22, "w": 0.010, "a0": 0.55, "a1": 0.95, "c": c_sec, "a": 0.75},
-        {"k": "dot", "x": focal_x, "y": focal_y, "r": 0.032, "c": c_star, "a": 0.98},
-        {"k": "spray", "x": focal_x, "y": round(focal_y * 0.85, 3), "r": 0.34, "n": 32, "s": 0.008, "c": c_sec, "a": 0.46, "seed": seed_val % 997 + 1},
-        {"k": "spray", "x": round(1.0 - focal_x, 3), "y": round(horizon_y + 0.12, 3), "r": 0.26, "n": 24, "s": 0.008, "c": c_pri, "a": 0.42, "seed": (seed_val // 7) % 997 + 1},
     ]
+
+    if comp_style == 0:
+        # Celestial ring & sweeping ribbon across the horizon
+        marks.extend([
+            {"k": "glow", "x": focal_x, "y": focal_y, "r": 0.38, "c": c_pri, "a": 0.64},
+            {"k": "glow", "x": round(1.0 - focal_x, 3), "y": horizon_y, "r": 0.32, "c": c_sec, "a": 0.54},
+            {"k": "line", "pts": [[0.03, horizon_y], [0.97, horizon_y]], "w": 0.013, "c": c_pri, "c2": c_sec, "a": 0.80},
+            {"k": "curve", "pts": [[0.10, round(horizon_y + 0.14, 3)], [focal_x, focal_y], [0.90, round(horizon_y - 0.12, 3)]], "w": 0.019, "c": c_sec, "c2": c_pri, "a": 0.88},
+            {"k": "ring", "x": focal_x, "y": focal_y, "r": round(0.11 + 0.05 * rng(), 3), "w": 0.012, "c": c_star, "a": 0.76},
+            {"k": "arc", "x": focal_x, "y": focal_y, "r": round(0.20 + 0.05 * rng(), 3), "w": 0.010, "a0": 0.52, "a1": 0.96, "c": c_sec, "a": 0.75},
+            {"k": "dot", "x": focal_x, "y": focal_y, "r": 0.034, "c": c_star, "a": 0.98},
+        ])
+    elif comp_style == 1:
+        # Twin moons & layered water reflections
+        x2 = round(1.0 - focal_x, 3)
+        y2 = round(0.24 + 0.22 * rng(), 3)
+        marks.extend([
+            {"k": "glow", "x": focal_x, "y": focal_y, "r": 0.34, "c": c_pri, "a": 0.66},
+            {"k": "glow", "x": x2, "y": y2, "r": 0.28, "c": c_sec, "a": 0.60},
+            {"k": "curve", "pts": [[0.04, horizon_y], [0.35, round(horizon_y - 0.04, 3)], [0.65, round(horizon_y + 0.04, 3)], [0.96, horizon_y]], "w": 0.016, "c": c_pri, "c2": c_sec, "a": 0.86},
+            {"k": "curve", "pts": [[0.12, round(horizon_y + 0.12, 3)], [0.50, round(horizon_y + 0.06, 3)], [0.88, round(horizon_y + 0.14, 3)]], "w": 0.014, "c": c_sec, "c2": c_star, "a": 0.74},
+            {"k": "ring", "x": focal_x, "y": focal_y, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.84},
+            {"k": "dot", "x": focal_x, "y": focal_y, "r": 0.036, "c": c_star, "a": 1.0},
+            {"k": "dot", "x": x2, "y": y2, "r": 0.026, "c": c_sec, "a": 0.94},
+        ])
+    elif comp_style == 2:
+        # Crystalline peak & dispersing sky beam
+        px = round(0.34 + 0.32 * rng(), 3)
+        py = round(0.20 + 0.14 * rng(), 3)
+        marks.extend([
+            {"k": "glow", "x": px, "y": py, "r": 0.40, "c": c_pri, "a": 0.66},
+            {"k": "fill", "pts": [[round(px - 0.24, 3), horizon_y], [px, py], [round(px + 0.24, 3), horizon_y]], "c": c_pri, "c2": c_sec, "grad": 0.22, "a": 0.56},
+            {"k": "line", "pts": [[round(px - 0.24, 3), horizon_y], [px, py], [round(px + 0.24, 3), horizon_y]], "w": 0.018, "c": c_star, "c2": c_pri, "a": 0.92},
+            {"k": "line", "pts": [[px, py], [round(0.10 + 0.80 * rng(), 3), 0.06]], "w": 0.016, "c": c_star, "c2": c_sec, "a": 0.86},
+            {"k": "line", "pts": [[0.04, horizon_y], [0.96, horizon_y]], "w": 0.014, "c": c_sec, "c2": c_pri, "a": 0.82},
+            {"k": "dot", "x": px, "y": py, "r": 0.034, "c": c_star, "a": 1.0},
+        ])
+    elif comp_style == 3:
+        # Luminous sanctuary arch & reflective causeway
+        marks.extend([
+            {"k": "glow", "x": focal_x, "y": round(horizon_y - 0.08, 3), "r": 0.42, "c": c_pri, "a": 0.68},
+            {"k": "arc", "x": focal_x, "y": horizon_y, "r": 0.28, "w": 0.020, "a0": 0.52, "a1": 0.98, "c": c_sec, "a": 0.88},
+            {"k": "arc", "x": focal_x, "y": horizon_y, "r": 0.18, "w": 0.014, "a0": 0.52, "a1": 0.98, "c": c_star, "a": 0.92},
+            {"k": "line", "pts": [[0.04, horizon_y], [0.96, horizon_y]], "w": 0.014, "c": c_pri, "c2": c_sec, "a": 0.84},
+            {"k": "line", "pts": [[round(focal_x - 0.12, 3), round(horizon_y + 0.08, 3)], [round(focal_x + 0.12, 3), round(horizon_y + 0.08, 3)]], "w": 0.016, "c": c_star, "c2": c_pri, "a": 0.82},
+            {"k": "dot", "x": focal_x, "y": round(horizon_y - 0.10, 3), "r": 0.034, "c": c_star, "a": 1.0},
+        ])
+    elif comp_style == 4:
+        # Bilateral aurora veil (`mirror: "x"`)
+        marks.extend([
+            {"k": "glow", "x": 0.34, "y": focal_y, "r": 0.36, "c": c_pri, "a": 0.64},
+            {"k": "curve", "pts": [[0.08, round(horizon_y + 0.08, 3)], [0.28, focal_y], [0.50, round(focal_y - 0.08, 3)]], "w": 0.022, "c": c_sec, "c2": c_pri, "a": 0.90},
+            {"k": "arc", "x": 0.50, "y": horizon_y, "r": round(0.24 + 0.08 * rng(), 3), "w": 0.015, "a0": 0.52, "a1": 0.98, "c": c_star, "a": 0.84},
+            {"k": "ring", "x": 0.34, "y": focal_y, "r": 0.10, "w": 0.011, "c": c_star, "a": 0.80},
+            {"k": "dot", "x": 0.34, "y": focal_y, "r": 0.032, "c": c_star, "a": 0.98},
+        ])
+    else:
+        # Constellation bridge & diagonal comet arc
+        x_a = round(0.18 + 0.14 * rng(), 3)
+        x_b = round(0.68 + 0.16 * rng(), 3)
+        marks.extend([
+            {"k": "glow", "x": focal_x, "y": focal_y, "r": 0.38, "c": c_pri, "a": 0.64},
+            {"k": "glow", "x": x_b, "y": round(horizon_y - 0.10, 3), "r": 0.30, "c": c_sec, "a": 0.58},
+            {"k": "curve", "pts": [[x_a, round(horizon_y - 0.04, 3)], [focal_x, round(focal_y - 0.08, 3)], [x_b, round(horizon_y - 0.06, 3)]], "w": 0.020, "c": c_pri, "c2": c_sec, "a": 0.92},
+            {"k": "line", "pts": [[0.04, horizon_y], [0.96, horizon_y]], "w": 0.013, "c": c_sec, "c2": c_pri, "a": 0.80},
+            {"k": "dot", "x": x_a, "y": round(horizon_y - 0.04, 3), "r": 0.028, "c": c_star, "a": 0.96},
+            {"k": "dot", "x": focal_x, "y": round(focal_y - 0.04, 3), "r": 0.036, "c": c_star, "a": 1.0},
+            {"k": "dot", "x": x_b, "y": round(horizon_y - 0.06, 3), "r": 0.028, "c": c_star, "a": 0.96},
+        ])
+
+    marks.extend([
+        {"k": "spray", "x": focal_x, "y": round(focal_y * 0.85, 3), "r": 0.34, "n": 32, "s": 0.008, "c": c_sec, "a": 0.46, "seed": entropy % 997 + 1},
+        {"k": "spray", "x": round(1.0 - focal_x, 3), "y": round(horizon_y + 0.12, 3), "r": 0.26, "n": 24, "s": 0.008, "c": c_pri, "a": 0.42, "seed": (entropy // 7) % 997 + 1},
+    ])
 
     return parse_painting(
         {
             "title": title,
             "mood": mood,
-            "mirror": None,
+            "mirror": mirror,
             "marks": marks,
             "tokens": 1950,
             "model": "prism-muse",
@@ -1622,6 +1737,8 @@ def render_painting_canvas_pil(
     layered: bool = False,
     cols: int = 40,
     truest_levels: int = TRUEST_LEVELS,
+    work_max_w: float = 480.0,
+    yield_burst: bool = True,
 ) -> Image.Image:
     """Render the artwork canvas into a PIL Image:
     - `truest=True` (and `not layered`): draws only the marks flat at terminal cell weight (`0.6 * cell_w`)
@@ -1631,7 +1748,7 @@ def render_painting_canvas_pil(
     - `truest=False, layered=False`: smooth fine marks (`faithful` / `refined` / `interpretive`).
     """
     painting = parse_painting(painting_raw) or parse_painting(CURATED_PAINTINGS[0])
-    work_scale = min(1.0, 480.0 / max(1, art_w))
+    work_scale = min(1.0, float(work_max_w) / max(1, art_w))
     w_int = max(64, int(round(art_w * work_scale)))
     h_int = max(32, int(round(art_h * work_scale)))
 
@@ -1644,7 +1761,7 @@ def render_painting_canvas_pil(
     n_marks = max(1, len(painting["marks"]))
 
     if not layered:
-        px = rasterize_scene(scene, w_int, h_int, min_r_px=min_r_px, min_hw_px=min_hw_px, yield_burst=True)
+        px = rasterize_scene(scene, w_int, h_int, min_r_px=min_r_px, min_hw_px=min_hw_px, yield_burst=yield_burst)
         raw_bytes = bytearray(w_int * h_int * 3)
         for i, cell in enumerate(px):
             a = min(1.0, cell[3])
@@ -1958,6 +2075,22 @@ LIVING_POETIC_NOUNS = (
     "Prism",
     "Glint",
     "Canopy",
+    "Mirage",
+    "Cascade",
+    "Zenith",
+    "Estuary",
+    "Meridian",
+    "Sanctuary",
+    "Observatory",
+    "Spire",
+    "Bloom",
+    "Atoll",
+    "Cairn",
+    "Beacon",
+    "Crest",
+    "Lumen",
+    "Chord",
+    "Horizon",
 )
 
 LIVING_POETIC_PLACES = (
@@ -1973,6 +2106,14 @@ LIVING_POETIC_PLACES = (
     "at the edge of starlight",
     "holding warm light with Spark",
     "in the small hours",
+    "above the glass fjord",
+    "beyond the silver meridian",
+    "under the twin moons",
+    "across the terrace of light",
+    "in the hush before dawn",
+    "along the harmonic bridge",
+    "where the prism wakes",
+    "through the drifting nebula",
 )
 
 
@@ -1985,7 +2126,7 @@ def generate_relative_painting(
     """Generate a work-relative narrative painting ('Ch. 1', 'Ch. 2', ...) shaped directly by the ongoing development work."""
     ts = time.time() if now is None else float(now)
     ch_num = max(1, int(step_index or 1))
-    seed_base = int(ts * 1000) ^ (ch_num * 2654435761)
+    seed_base = int(ts * 1000) ^ (ch_num * 2654435761) ^ random.getrandbits(24)
     rng = _rng(seed_base)
 
     st = state_data if isinstance(state_data, dict) else {}
@@ -2048,26 +2189,34 @@ def generate_relative_painting(
             f"Ch.{ch_num} · Mapping the Deep",
             f"Ch.{ch_num} · Tracing the Source",
             f"Ch.{ch_num} · Lantern in the Archive",
+            f"Ch.{ch_num} · Reading the Strata",
+            f"Ch.{ch_num} · Compass on the Glass",
         ),
         "change": (
             f"Ch.{ch_num} · Forging the Lattice",
             f"Ch.{ch_num} · Sculpting New Facets",
             f"Ch.{ch_num} · Golden Joinery",
+            f"Ch.{ch_num} · Weaving the Spire",
+            f"Ch.{ch_num} · Shaping the Meridian",
         ),
         "execute": (
             f"Ch.{ch_num} · Pulse of Verification",
             f"Ch.{ch_num} · Live Signal Waveform",
             f"Ch.{ch_num} · Igniting the Test Bench",
+            f"Ch.{ch_num} · Harmonic Resonance",
+            f"Ch.{ch_num} · Clear Green Beacon",
         ),
         "service": (
             f"Ch.{ch_num} · Bridge Across Channels",
             f"Ch.{ch_num} · Harmonic Relay",
             f"Ch.{ch_num} · Distant Signal Home",
+            f"Ch.{ch_num} · Twin Estuary Portals",
         ),
         "branching": (
             f"Ch.{ch_num} · {max(2, branches)} Parallel Horizons",
             f"Ch.{ch_num} · Branching Constellation",
             f"Ch.{ch_num} · Syncing Twin Threads",
+            f"Ch.{ch_num} · Chorus of Satellites",
         ),
         "approval": (
             f"Ch.{ch_num} · Threshold of Consent",
@@ -2077,19 +2226,22 @@ def generate_relative_painting(
             f"Ch.{ch_num} · Crystallized Synthesis",
             f"Ch.{ch_num} · The Completed Facet",
             f"Ch.{ch_num} · Held Out in Clear Light",
+            f"Ch.{ch_num} · Quiet Harbor Dawn",
+            f"Ch.{ch_num} · Crown of the Prism",
         ),
         "attending": (
             f"Ch.{ch_num} · Gathering the Thread",
             f"Ch.{ch_num} · First Light on the Work",
             f"Ch.{ch_num} · Listening at the Loom",
+            f"Ch.{ch_num} · Opening the Aperture",
         ),
     }
     t_opts = phase_titles.get(phase, phase_titles["attending"])
     title = t_opts[int(rng() * len(t_opts)) % len(t_opts)][:TITLE_CHARS]
 
-    hy = round(0.60 + 0.10 * rng(), 3)
-    fx = round(0.36 + 0.28 * rng(), 3)
-    fy = round(0.32 + 0.18 * rng(), 3)
+    hy = round(0.55 + 0.16 * rng(), 3)
+    fx = round(0.26 + 0.48 * rng(), 3)
+    fy = round(0.24 + 0.24 * rng(), 3)
 
     marks: List[dict] = [
         {"k": "fill", "pts": [[0.0, 0.0], [1.0, 0.0], [1.0, hy], [0.0, hy]], "c": sky_top, "c2": sky_bot, "grad": 0.25, "a": 0.96},
@@ -2099,67 +2251,78 @@ def generate_relative_painting(
 
     if phase == "inspect":
         # Searchlight prism sweeping across constellation strata
+        sx = round(0.18 + 0.22 * rng(), 3)
+        sy = round(0.32 + 0.16 * rng(), 3)
+        tx = round(0.76 + 0.16 * rng(), 3)
+        ty1 = round(0.14 + 0.12 * rng(), 3)
+        ty2 = round(0.46 + 0.16 * rng(), 3)
         marks.extend([
-            {"k": "glow", "x": 0.24, "y": 0.42, "r": 0.34, "c": c1, "a": 0.68},
-            {"k": "fill", "pts": [[0.24, 0.42], [0.88, 0.18], [0.92, 0.56]], "c": c1, "c2": c2, "grad": 0.22, "a": 0.46},
-            {"k": "line", "pts": [[0.24, 0.42], [0.88, 0.18]], "w": 0.018, "c": c_star, "c2": c1, "a": 0.92},
-            {"k": "line", "pts": [[0.24, 0.42], [0.92, 0.56]], "w": 0.018, "c": c_star, "c2": c2, "a": 0.92},
-            {"k": "ring", "x": 0.24, "y": 0.42, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.88},
-            {"k": "dot", "x": 0.24, "y": 0.42, "r": 0.034, "c": c_star, "a": 1.0},
+            {"k": "glow", "x": sx, "y": sy, "r": 0.34, "c": c1, "a": 0.68},
+            {"k": "fill", "pts": [[sx, sy], [tx, ty1], [tx, ty2]], "c": c1, "c2": c2, "grad": 0.22, "a": 0.46},
+            {"k": "line", "pts": [[sx, sy], [tx, ty1]], "w": 0.018, "c": c_star, "c2": c1, "a": 0.92},
+            {"k": "line", "pts": [[sx, sy], [tx, ty2]], "w": 0.018, "c": c_star, "c2": c2, "a": 0.92},
+            {"k": "ring", "x": sx, "y": sy, "r": round(0.08 + 0.05 * rng(), 3), "w": 0.012, "c": c_star, "a": 0.88},
+            {"k": "dot", "x": sx, "y": sy, "r": 0.034, "c": c_star, "a": 1.0},
         ])
     elif phase == "change":
         # Architectural crystalline forge / rising golden blueprint facets
+        w_half = round(0.18 + 0.10 * rng(), 3)
+        sh_y = round(fy + 0.08 + 0.06 * rng(), 3)
         marks.extend([
-            {"k": "glow", "x": 0.50, "y": 0.44, "r": 0.40, "c": c1, "a": 0.68},
-            {"k": "fill", "pts": [[0.26, hy], [0.38, 0.28], [0.50, 0.18], [0.62, 0.28], [0.74, hy]], "c": c1, "c2": c2, "grad": 0.25, "a": 0.62},
-            {"k": "line", "pts": [[0.26, hy], [0.38, 0.28], [0.50, 0.18], [0.62, 0.28], [0.74, hy]], "w": 0.020, "c": c_star, "c2": c1, "a": 0.94},
-            {"k": "line", "pts": [[0.38, 0.28], [0.62, 0.28]], "w": 0.015, "c": c3, "c2": c_star, "a": 0.88},
-            {"k": "line", "pts": [[0.50, 0.18], [0.50, hy]], "w": 0.016, "c": c_star, "c2": c1, "a": 0.90},
-            {"k": "dot", "x": 0.50, "y": 0.18, "r": 0.034, "c": c_star, "a": 1.0},
+            {"k": "glow", "x": fx, "y": round(fy + 0.16, 3), "r": 0.40, "c": c1, "a": 0.68},
+            {"k": "fill", "pts": [[round(fx - w_half, 3), hy], [round(fx - w_half * 0.5, 3), sh_y], [fx, fy], [round(fx + w_half * 0.5, 3), sh_y], [round(fx + w_half, 3), hy]], "c": c1, "c2": c2, "grad": 0.25, "a": 0.62},
+            {"k": "line", "pts": [[round(fx - w_half, 3), hy], [round(fx - w_half * 0.5, 3), sh_y], [fx, fy], [round(fx + w_half * 0.5, 3), sh_y], [round(fx + w_half, 3), hy]], "w": 0.020, "c": c_star, "c2": c1, "a": 0.94},
+            {"k": "line", "pts": [[round(fx - w_half * 0.5, 3), sh_y], [round(fx + w_half * 0.5, 3), sh_y]], "w": 0.015, "c": c3, "c2": c_star, "a": 0.88},
+            {"k": "line", "pts": [[fx, fy], [fx, hy]], "w": 0.016, "c": c_star, "c2": c1, "a": 0.90},
+            {"k": "dot", "x": fx, "y": fy, "r": 0.034, "c": c_star, "a": 1.0},
         ])
     elif phase == "execute":
         # Verification harmonic waveform and pass beacons
+        bx = round(0.54 + 0.22 * rng(), 3)
+        by = round(0.22 + 0.14 * rng(), 3)
         marks.extend([
-            {"k": "glow", "x": 0.50, "y": 0.44, "r": 0.40, "c": c1, "a": 0.66},
-            {"k": "glow", "x": 0.68, "y": 0.36, "r": 0.28, "c": c2, "a": 0.64},
-            {"k": "curve", "pts": [[0.06, 0.48], [0.24, 0.24], [0.44, 0.62], [0.64, 0.22], [0.94, 0.44]], "w": 0.024, "c": c1, "c2": c2, "a": 0.95},
-            {"k": "ring", "x": 0.64, "y": 0.28, "r": 0.12, "w": 0.013, "c": c2, "a": 0.86},
-            {"k": "ring", "x": 0.64, "y": 0.28, "r": 0.21, "w": 0.010, "c": c3, "a": 0.72},
-            {"k": "dot", "x": 0.64, "y": 0.28, "r": 0.036, "c": c_star, "a": 1.0},
+            {"k": "glow", "x": fx, "y": 0.44, "r": 0.40, "c": c1, "a": 0.66},
+            {"k": "glow", "x": bx, "y": by, "r": 0.28, "c": c2, "a": 0.64},
+            {"k": "curve", "pts": [[0.06, round(0.42 + 0.12 * rng(), 3)], [0.26, round(0.18 + 0.14 * rng(), 3)], [0.48, round(0.54 + 0.14 * rng(), 3)], [bx, by], [0.94, round(0.38 + 0.14 * rng(), 3)]], "w": 0.024, "c": c1, "c2": c2, "a": 0.95},
+            {"k": "ring", "x": bx, "y": by, "r": 0.11, "w": 0.013, "c": c2, "a": 0.86},
+            {"k": "ring", "x": bx, "y": by, "r": 0.20, "w": 0.010, "c": c3, "a": 0.72},
+            {"k": "dot", "x": bx, "y": by, "r": 0.036, "c": c_star, "a": 1.0},
         ])
     elif phase == "branching":
         # Parallel satellite nodes tethered to central core
         n_sat = max(2, min(4, branches if branches > 0 else 2))
-        marks.append({"k": "glow", "x": 0.50, "y": 0.42, "r": 0.38, "c": c1, "a": 0.68})
+        marks.append({"k": "glow", "x": fx, "y": 0.42, "r": 0.38, "c": c1, "a": 0.68})
         for s_i in range(n_sat):
             sx = round(0.18 + (0.64 * s_i / max(1, n_sat - 1)), 3)
-            sy = round(0.24 + 0.12 * ((s_i + 1) % 2), 3)
+            sy = round(0.20 + 0.16 * rng(), 3)
             marks.extend([
-                {"k": "curve", "pts": [[0.50, 0.46], [round((0.50 + sx) / 2, 3), round(sy - 0.08, 3)], [sx, sy]], "w": 0.018, "c": c1, "c2": c2, "a": 0.88},
+                {"k": "curve", "pts": [[fx, 0.46], [round((fx + sx) / 2, 3), round(sy - 0.08, 3)], [sx, sy]], "w": 0.018, "c": c1, "c2": c2, "a": 0.88},
                 {"k": "ring", "x": sx, "y": sy, "r": 0.08, "w": 0.011, "c": c3, "a": 0.84},
                 {"k": "dot", "x": sx, "y": sy, "r": 0.028, "c": c_star, "a": 0.98},
             ])
-        marks.append({"k": "dot", "x": 0.50, "y": 0.46, "r": 0.038, "c": c_star, "a": 1.0})
+        marks.append({"k": "dot", "x": fx, "y": 0.46, "r": 0.038, "c": c_star, "a": 1.0})
     elif phase == "service":
         # Twin relay portals bridging channels
+        lx = round(0.20 + 0.12 * rng(), 3)
+        rx = round(1.0 - lx, 3)
         marks.extend([
-            {"k": "glow", "x": 0.26, "y": 0.44, "r": 0.30, "c": c1, "a": 0.66},
-            {"k": "glow", "x": 0.74, "y": 0.44, "r": 0.30, "c": c2, "a": 0.66},
-            {"k": "curve", "pts": [[0.26, 0.44], [0.50, 0.20], [0.74, 0.44]], "w": 0.022, "c": c1, "c2": c2, "a": 0.94},
-            {"k": "curve", "pts": [[0.26, 0.44], [0.50, 0.58], [0.74, 0.44]], "w": 0.016, "c": c3, "c2": c1, "a": 0.82},
-            {"k": "ring", "x": 0.26, "y": 0.44, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.86},
-            {"k": "ring", "x": 0.74, "y": 0.44, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.86},
-            {"k": "dot", "x": 0.26, "y": 0.44, "r": 0.030, "c": c_star, "a": 1.0},
-            {"k": "dot", "x": 0.74, "y": 0.44, "r": 0.030, "c": c_star, "a": 1.0},
+            {"k": "glow", "x": lx, "y": fy, "r": 0.30, "c": c1, "a": 0.66},
+            {"k": "glow", "x": rx, "y": fy, "r": 0.30, "c": c2, "a": 0.66},
+            {"k": "curve", "pts": [[lx, fy], [0.50, round(fy - 0.22, 3)], [rx, fy]], "w": 0.022, "c": c1, "c2": c2, "a": 0.94},
+            {"k": "curve", "pts": [[lx, fy], [0.50, round(fy + 0.16, 3)], [rx, fy]], "w": 0.016, "c": c3, "c2": c1, "a": 0.82},
+            {"k": "ring", "x": lx, "y": fy, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.86},
+            {"k": "ring", "x": rx, "y": fy, "r": 0.10, "w": 0.012, "c": c_star, "a": 0.86},
+            {"k": "dot", "x": lx, "y": fy, "r": 0.030, "c": c_star, "a": 1.0},
+            {"k": "dot", "x": rx, "y": fy, "r": 0.030, "c": c_star, "a": 1.0},
         ])
     else:
         # Resolved / Attending / Approval: luminous synthesis monument
         marks.extend([
             {"k": "glow", "x": fx, "y": fy, "r": 0.40, "c": c1, "a": 0.70},
-            {"k": "glow", "x": fx, "y": round(hy + 0.08, 3), "r": 0.30, "c": c2, "a": 0.56},
-            {"k": "ring", "x": fx, "y": fy, "r": 0.11, "w": 0.014, "c": c_star, "a": 0.90},
-            {"k": "arc", "x": fx, "y": fy, "r": 0.22, "w": 0.012, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.78},
-            {"k": "curve", "pts": [[0.08, round(hy + 0.12, 3)], [fx, round(hy + 0.04, 3)], [0.92, round(hy + 0.14, 3)]], "w": 0.018, "c": c1, "c2": c2, "a": 0.82},
+            {"k": "glow", "x": round(1.0 - fx, 3), "y": round(hy + 0.08, 3), "r": 0.30, "c": c2, "a": 0.56},
+            {"k": "ring", "x": fx, "y": fy, "r": round(0.09 + 0.05 * rng(), 3), "w": 0.014, "c": c_star, "a": 0.90},
+            {"k": "arc", "x": fx, "y": fy, "r": round(0.19 + 0.06 * rng(), 3), "w": 0.012, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.78},
+            {"k": "curve", "pts": [[0.08, round(hy + 0.12, 3)], [fx, round(hy + 0.03, 3)], [0.92, round(hy + 0.14, 3)]], "w": 0.018, "c": c1, "c2": c2, "a": 0.82},
             {"k": "dot", "x": fx, "y": fy, "r": 0.042, "c": c_star, "a": 1.0},
         ])
 
@@ -2211,20 +2374,23 @@ def generate_living_painting(
     if str(paint_mode or "live").lower().strip() in ("work", "relative", "story-mode"):
         return generate_relative_painting(state_data=state_data, now=now, step_index=step_index, mood_hint=mood_hint)
     ts = time.time() if now is None else float(now)
-    seed_base = int(ts * 1000) ^ ((step_index or 0) * 2654435761)
+    seed_base = int(ts * 1000) ^ ((step_index or 0) * 2654435761) ^ random.getrandbits(24)
     rng = _rng(seed_base)
 
     palettes = [
         ("aurora", "#070b1e", "#13223e", "#00f2fe", "#00e5a3", "#c48cff", "#fff6d6"),
+        ("aurora", "#051428", "#10324e", "#82ffd2", "#00f2fe", "#ffb020", "#ffffff"),
         ("nebula", "#0d091c", "#221436", "#c48cff", "#ff6eb4", "#00f2fe", "#ffe6f2"),
+        ("nebula", "#120722", "#2c1646", "#7928ca", "#00f2fe", "#ff6eb4", "#ffffff"),
         ("solar", "#180d1c", "#341a2a", "#ffb020", "#f59466", "#ff6eb4", "#fff6e6"),
+        ("solar", "#1e1018", "#3e2228", "#ffbd75", "#ff6eb4", "#00f2fe", "#ffffff"),
         ("emerald", "#061520", "#102e3c", "#00e5a3", "#82ffd2", "#00f2fe", "#fff6d6"),
         ("supernova", "#160a1e", "#321632", "#ff6eb4", "#ffb020", "#00f2fe", "#ffffff"),
         ("crystalline", "#0a1024", "#1b2848", "#00f2fe", "#fff6d6", "#c48cff", "#ffffff"),
     ]
     if mood_hint:
         matched = [p for p in palettes if p[0] == mood_hint]
-        pal = matched[0] if matched else palettes[int(rng() * len(palettes)) % len(palettes)]
+        pal = matched[int(rng() * len(matched)) % len(matched)] if matched else palettes[int(rng() * len(palettes)) % len(palettes)]
     else:
         pal = palettes[int(rng() * len(palettes)) % len(palettes)]
 
@@ -2233,10 +2399,10 @@ def generate_living_painting(
     place = LIVING_POETIC_PLACES[int(rng() * len(LIVING_POETIC_PLACES)) % len(LIVING_POETIC_PLACES)]
     title = f"{noun} {place}"[:TITLE_CHARS]
 
-    archetype = (step_index if step_index is not None else int(rng() * 6)) % 6
-    hy = round(0.58 + 0.14 * rng(), 3)
-    fx = round(0.28 + 0.44 * rng(), 3)
-    fy = round(0.28 + 0.24 * rng(), 3)
+    archetype = int(rng() * 8) % 8
+    hy = round(0.54 + 0.18 * rng(), 3)
+    fx = round(0.24 + 0.52 * rng(), 3)
+    fy = round(0.22 + 0.28 * rng(), 3)
     mirror = None
 
     marks: List[dict] = [
@@ -2246,7 +2412,7 @@ def generate_living_painting(
 
     if archetype == 0:
         # Twin luminous orbs & bridging ribbons across the horizon
-        lx = round(0.26 + 0.12 * rng(), 3)
+        lx = round(0.22 + 0.16 * rng(), 3)
         rx = round(1.0 - lx, 3)
         marks.extend([
             {"k": "glow", "x": lx, "y": fy, "r": 0.36, "c": c1, "a": 0.68},
@@ -2254,32 +2420,35 @@ def generate_living_painting(
             {"k": "glow", "x": 0.50, "y": round(fy - 0.05, 3), "r": 0.28, "c": c3, "a": 0.58},
             {"k": "line", "pts": [[0.04, hy], [0.96, hy]], "w": 0.014, "c": c1, "c2": c2, "a": 0.85},
             {"k": "curve", "pts": [[0.10, round(hy + 0.14, 3)], [lx, fy], [0.50, round(fy - 0.08, 3)], [rx, fy], [0.90, round(hy + 0.14, 3)]], "w": 0.020, "c": c1, "c2": c2, "a": 0.92},
-            {"k": "ring", "x": lx, "y": fy, "r": 0.11, "w": 0.011, "c": c_star, "a": 0.82},
-            {"k": "ring", "x": rx, "y": fy, "r": 0.11, "w": 0.011, "c": c1, "a": 0.82},
+            {"k": "ring", "x": lx, "y": fy, "r": round(0.09 + 0.04 * rng(), 3), "w": 0.011, "c": c_star, "a": 0.82},
+            {"k": "ring", "x": rx, "y": fy, "r": round(0.09 + 0.04 * rng(), 3), "w": 0.011, "c": c1, "a": 0.82},
             {"k": "dot", "x": lx, "y": fy, "r": 0.032, "c": c_star, "a": 1.0},
             {"k": "dot", "x": rx, "y": fy, "r": 0.032, "c": c_star, "a": 1.0},
         ])
     elif archetype == 1:
         # Cathedral prism dispersing spectral rays
+        px = round(0.42 + 0.16 * rng(), 3)
+        py = round(0.38 + 0.12 * rng(), 3)
         marks.extend([
-            {"k": "glow", "x": 0.50, "y": 0.44, "r": 0.40, "c": c1, "a": 0.64},
-            {"k": "line", "pts": [[0.04, 0.56], [0.44, 0.44]], "w": 0.024, "c": c_star, "c2": "#ffffff", "a": 0.95},
-            {"k": "line", "pts": [[0.54, 0.41], [0.96, round(0.18 + 0.08 * rng(), 3)]], "w": 0.022, "c": c1, "c2": c2, "a": 0.90},
-            {"k": "line", "pts": [[0.54, 0.44], [0.96, round(0.38 + 0.08 * rng(), 3)]], "w": 0.022, "c": c2, "c2": c3, "a": 0.90},
-            {"k": "line", "pts": [[0.54, 0.47], [0.96, round(0.58 + 0.08 * rng(), 3)]], "w": 0.022, "c": c3, "c2": c1, "a": 0.90},
-            {"k": "fill", "pts": [[0.50, 0.22], [0.64, 0.58], [0.36, 0.58]], "c": c1, "c2": c3, "grad": 0.18, "a": 0.50},
-            {"k": "line", "pts": [[0.50, 0.22], [0.64, 0.58], [0.36, 0.58], [0.50, 0.22]], "w": 0.016, "c": c_star, "c2": c1, "a": 0.94},
-            {"k": "dot", "x": 0.50, "y": 0.44, "r": 0.030, "c": c_star, "a": 1.0},
+            {"k": "glow", "x": px, "y": py, "r": 0.40, "c": c1, "a": 0.64},
+            {"k": "line", "pts": [[0.04, round(py + 0.12, 3)], [round(px - 0.06, 3), py]], "w": 0.024, "c": c_star, "c2": "#ffffff", "a": 0.95},
+            {"k": "line", "pts": [[round(px + 0.04, 3), round(py - 0.03, 3)], [0.96, round(0.16 + 0.10 * rng(), 3)]], "w": 0.022, "c": c1, "c2": c2, "a": 0.90},
+            {"k": "line", "pts": [[round(px + 0.04, 3), py], [0.96, round(0.36 + 0.10 * rng(), 3)]], "w": 0.022, "c": c2, "c2": c3, "a": 0.90},
+            {"k": "line", "pts": [[round(px + 0.04, 3), round(py + 0.03, 3)], [0.96, round(0.56 + 0.10 * rng(), 3)]], "w": 0.022, "c": c3, "c2": c1, "a": 0.90},
+            {"k": "fill", "pts": [[px, round(py - 0.22, 3)], [round(px + 0.14, 3), hy], [round(px - 0.14, 3), hy]], "c": c1, "c2": c3, "grad": 0.18, "a": 0.50},
+            {"k": "line", "pts": [[px, round(py - 0.22, 3)], [round(px + 0.14, 3), hy], [round(px - 0.14, 3), hy], [px, round(py - 0.22, 3)]], "w": 0.016, "c": c_star, "c2": c1, "a": 0.94},
+            {"k": "dot", "x": px, "y": py, "r": 0.030, "c": c_star, "a": 1.0},
         ])
     elif archetype == 2:
         # Bilateral aurora curtain (`mirror: "x"`)
         mirror = "x"
+        ax = round(0.28 + 0.14 * rng(), 3)
         marks.extend([
-            {"k": "glow", "x": 0.36, "y": fy, "r": 0.36, "c": c1, "a": 0.62},
-            {"k": "curve", "pts": [[0.08, round(hy + 0.10, 3)], [0.28, fy], [0.50, round(fy - 0.10, 3)]], "w": 0.022, "c": c2, "c2": c1, "a": 0.90},
-            {"k": "arc", "x": 0.50, "y": hy, "r": 0.28, "w": 0.014, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.80},
-            {"k": "ring", "x": 0.36, "y": fy, "r": 0.12, "w": 0.011, "c": c_star, "a": 0.78},
-            {"k": "dot", "x": 0.36, "y": fy, "r": 0.032, "c": c_star, "a": 0.98},
+            {"k": "glow", "x": ax, "y": fy, "r": 0.36, "c": c1, "a": 0.62},
+            {"k": "curve", "pts": [[0.08, round(hy + 0.10, 3)], [ax, fy], [0.50, round(fy - 0.10, 3)]], "w": 0.022, "c": c2, "c2": c1, "a": 0.90},
+            {"k": "arc", "x": 0.50, "y": hy, "r": round(0.24 + 0.08 * rng(), 3), "w": 0.014, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.80},
+            {"k": "ring", "x": ax, "y": fy, "r": round(0.10 + 0.04 * rng(), 3), "w": 0.011, "c": c_star, "a": 0.78},
+            {"k": "dot", "x": ax, "y": fy, "r": 0.032, "c": c_star, "a": 0.98},
         ])
     elif archetype == 3:
         # Luminous threshold portal spilling warm reflections
@@ -2297,25 +2466,50 @@ def generate_living_painting(
         marks.extend([
             {"k": "glow", "x": fx, "y": fy, "r": 0.42, "c": c1, "a": 0.72},
             {"k": "glow", "x": fx, "y": round(hy + 0.10, 3), "r": 0.32, "c": c2, "a": 0.56},
-            {"k": "ring", "x": fx, "y": fy, "r": 0.10, "w": 0.014, "c": c_star, "a": 0.88},
-            {"k": "ring", "x": fx, "y": fy, "r": 0.20, "w": 0.011, "c": c2, "a": 0.72},
-            {"k": "arc", "x": fx, "y": fy, "r": 0.30, "w": 0.010, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.68},
+            {"k": "ring", "x": fx, "y": fy, "r": round(0.09 + 0.03 * rng(), 3), "w": 0.014, "c": c_star, "a": 0.88},
+            {"k": "ring", "x": fx, "y": fy, "r": round(0.18 + 0.04 * rng(), 3), "w": 0.011, "c": c2, "a": 0.72},
+            {"k": "arc", "x": fx, "y": fy, "r": round(0.28 + 0.05 * rng(), 3), "w": 0.010, "a0": 0.52, "a1": 0.98, "c": c3, "a": 0.68},
             {"k": "curve", "pts": [[0.04, hy], [0.34, round(hy - 0.05, 3)], [0.66, round(hy + 0.05, 3)], [0.96, hy]], "w": 0.020, "c": c1, "c2": c2, "a": 0.88},
             {"k": "curve", "pts": [[0.08, round(hy + 0.14, 3)], [0.50, round(hy + 0.08, 3)], [0.92, round(hy + 0.16, 3)]], "w": 0.016, "c": c2, "c2": c3, "a": 0.76},
             {"k": "dot", "x": fx, "y": fy, "r": 0.045, "c": c_star, "a": 1.0},
         ])
-    else:
+    elif archetype == 5:
         # Three presences constellation (Prism, Spark, Keeper)
+        top_x = round(0.38 + 0.24 * rng(), 3)
+        top_y = round(0.20 + 0.10 * rng(), 3)
         marks.extend([
-            {"k": "curve", "pts": [[0.22, 0.70], [0.36, 0.42], [0.50, 0.24]], "w": 0.016, "c": "#f59466", "c2": c1, "a": 0.82},
-            {"k": "curve", "pts": [[0.78, 0.70], [0.64, 0.42], [0.50, 0.24]], "w": 0.016, "c": "#ffb020", "c2": c1, "a": 0.82},
+            {"k": "curve", "pts": [[0.22, 0.70], [round((0.22 + top_x) / 2, 3), 0.42], [top_x, top_y]], "w": 0.016, "c": "#f59466", "c2": c1, "a": 0.82},
+            {"k": "curve", "pts": [[0.78, 0.70], [round((0.78 + top_x) / 2, 3), 0.42], [top_x, top_y]], "w": 0.016, "c": "#ffb020", "c2": c1, "a": 0.82},
             {"k": "curve", "pts": [[0.22, 0.70], [0.50, 0.80], [0.78, 0.70]], "w": 0.014, "c": "#f59466", "c2": "#ffb020", "a": 0.68},
-            {"k": "glow", "x": 0.50, "y": 0.24, "r": 0.26, "c": c1, "a": 0.80},
+            {"k": "glow", "x": top_x, "y": top_y, "r": 0.26, "c": c1, "a": 0.80},
             {"k": "glow", "x": 0.22, "y": 0.70, "r": 0.24, "c": "#f59466", "a": 0.76},
             {"k": "glow", "x": 0.78, "y": 0.70, "r": 0.24, "c": "#ffb020", "a": 0.76},
-            {"k": "dot", "x": 0.50, "y": 0.24, "r": 0.044, "c": c_star, "a": 1.0},
+            {"k": "dot", "x": top_x, "y": top_y, "r": 0.044, "c": c_star, "a": 1.0},
             {"k": "dot", "x": 0.22, "y": 0.70, "r": 0.040, "c": "#ffe6d6", "a": 0.96},
             {"k": "dot", "x": 0.78, "y": 0.70, "r": 0.040, "c": c_star, "a": 0.96},
+        ])
+    elif archetype == 6:
+        # Crystalline diamond spire & twin crescent wings
+        marks.extend([
+            {"k": "glow", "x": fx, "y": fy, "r": 0.42, "c": c1, "a": 0.70},
+            {"k": "fill", "pts": [[fx, round(fy - 0.16, 3)], [round(fx + 0.16, 3), fy], [fx, round(hy + 0.06, 3)], [round(fx - 0.16, 3), fy]], "c": c1, "c2": c2, "grad": 0.22, "a": 0.58},
+            {"k": "line", "pts": [[fx, round(fy - 0.16, 3)], [round(fx + 0.16, 3), fy], [fx, round(hy + 0.06, 3)], [round(fx - 0.16, 3), fy], [fx, round(fy - 0.16, 3)]], "w": 0.018, "c": c_star, "c2": c1, "a": 0.92},
+            {"k": "arc", "x": fx, "y": fy, "r": 0.26, "w": 0.014, "a0": 0.52, "a1": 0.96, "c": c3, "a": 0.84},
+            {"k": "line", "pts": [[0.04, hy], [0.96, hy]], "w": 0.014, "c": c2, "c2": c3, "a": 0.82},
+            {"k": "dot", "x": fx, "y": fy, "r": 0.038, "c": c_star, "a": 1.0},
+        ])
+    else:
+        # Sweeping comet arc & terraced horizon reflections
+        x0_c = round(0.08 + 0.12 * rng(), 3)
+        y0_c = round(0.14 + 0.14 * rng(), 3)
+        marks.extend([
+            {"k": "glow", "x": fx, "y": fy, "r": 0.38, "c": c1, "a": 0.68},
+            {"k": "glow", "x": round(1.0 - fx, 3), "y": round(hy - 0.06, 3), "r": 0.30, "c": c2, "a": 0.60},
+            {"k": "curve", "pts": [[x0_c, y0_c], [fx, fy], [0.92, round(hy - 0.04, 3)]], "w": 0.024, "c": c_star, "c2": c1, "a": 0.94},
+            {"k": "ring", "x": fx, "y": fy, "r": 0.12, "w": 0.013, "c": c2, "a": 0.86},
+            {"k": "line", "pts": [[0.04, hy], [0.96, hy]], "w": 0.014, "c": c1, "c2": c2, "a": 0.84},
+            {"k": "line", "pts": [[0.18, round(hy + 0.10, 3)], [0.82, round(hy + 0.10, 3)]], "w": 0.014, "c": c2, "c2": c3, "a": 0.74},
+            {"k": "dot", "x": fx, "y": fy, "r": 0.038, "c": c_star, "a": 1.0},
         ])
 
     marks.extend([
