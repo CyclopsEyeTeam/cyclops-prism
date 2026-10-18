@@ -9,6 +9,7 @@ State is stored in $XDG_STATE_HOME/gemini-prism/expression.json, completely sepa
 from the zero-leakage Cyclops Link and Presence Feed files.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,24 +23,135 @@ sys.dont_write_bytecode = True
 VALID_MOODS = ("aurora", "solar", "nebula", "emerald", "supernova", "zen", "crystalline")
 VALID_EFFECTS = ("starburst", "meteor", "ripple", "pulse", "bloom", "none")
 VALID_SHAPES = ("wide", "square", "tall")
+VALID_SCOPES = ("session", "dir")
 
 
-def expression_file_path(environ: Optional[Dict[str, str]] = None) -> Path:
-    """Resolve the path to Prism's live expression channel state file."""
+def _is_default_state_home(environ: Optional[Dict[str, str]] = None) -> bool:
+    env = os.environ if environ is None else environ
+    custom = env.get("XDG_STATE_HOME")
+    if not custom:
+        return True
+    home = env.get("HOME", "/tmp")
+    try:
+        return Path(custom).resolve() == (Path(home) / ".local" / "state").resolve()
+    except OSError:
+        return False
+
+
+def _active_project_candidates(environ: Optional[Dict[str, str]] = None) -> List[Path]:
+    env = os.environ if environ is None else environ
+    home = env.get("HOME", "/tmp")
+    state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
+    cands = [state_home / "gemini-prism" / "active_project.json"]
+    if _is_default_state_home(env):
+        cands.append(Path("/tmp") / "gemini-prism" / "active_project.json")
+    return cands
+
+
+def set_active_project(
+    project_dir: Path,
+    *,
+    session_id: Optional[str] = None,
+    session_start: Optional[float] = None,
+    environ: Optional[Dict[str, str]] = None,
+) -> None:
+    """Record the active project directory and session so stdio MCP tools target the active workspace."""
+    try:
+        resolved = str(Path(project_dir).resolve())
+    except OSError:
+        resolved = str(project_dir)
+    payload = {
+        "v": 1,
+        "projectDir": resolved,
+        "sessionId": session_id,
+        "sessionStart": session_start,
+        "updatedAt": time.time(),
+    }
+    for cand in _active_project_candidates(environ):
+        try:
+            _write_single_expr_file(cand, payload)
+        except Exception:
+            pass
+
+
+def resolve_project_dir(
+    project_dir: Optional[Path] = None,
+    environ: Optional[Dict[str, str]] = None,
+) -> Path:
+    """Resolve the active workspace directory for scoping paintings and expression state."""
+    if project_dir is not None:
+        try:
+            return Path(project_dir).resolve()
+        except OSError:
+            return Path(project_dir)
+    env = os.environ if environ is None else environ
+    env_proj = env.get("PRISM_PROJECT_DIR")
+    if env_proj:
+        try:
+            p_env = Path(env_proj).resolve()
+            if p_env.is_dir():
+                return p_env
+        except OSError:
+            pass
+    try:
+        cwd = Path.cwd().resolve()
+    except OSError:
+        cwd = Path("/tmp")
+
+    home_dir = Path(env.get("HOME", "/tmp")).resolve() if env.get("HOME") else Path("/tmp")
+    cwd_str = str(cwd)
+    # When spawned by Antigravity as a plugin MCP server, cwd is the plugin directory or $HOME
+    if ".gemini/config/plugins" in cwd_str or cwd == home_dir:
+        best_proj: Optional[Path] = None
+        best_ts = -1.0
+        for cand in _active_project_candidates(env):
+            if not cand.is_file() or cand.is_symlink():
+                continue
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+                p_str = data.get("projectDir")
+                upd = float(data.get("updatedAt") or 0.0)
+                if p_str and upd > best_ts:
+                    p_cand = Path(p_str).resolve()
+                    if p_cand.is_dir():
+                        best_ts = upd
+                        best_proj = p_cand
+            except Exception:
+                continue
+        if best_proj is not None:
+            return best_proj
+    return cwd
+
+
+def _project_hash(project_dir: Path) -> str:
+    try:
+        norm = str(Path(project_dir).resolve())
+    except OSError:
+        norm = str(project_dir)
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def expression_file_path(
+    environ: Optional[Dict[str, str]] = None,
+    project_dir: Optional[Path] = None,
+) -> Path:
+    """Resolve the path to Prism's directory-scoped live expression channel state file."""
     env = os.environ if environ is None else environ
     override = env.get("PRISM_EXPRESSION_FILE")
     if override:
         return Path(override)
+    proj = resolve_project_dir(project_dir, env)
+    p_hash = _project_hash(proj)
     home = env.get("HOME", "/tmp")
     state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
-    candidate = state_home / "gemini-prism" / "expression.json"
+    candidate = state_home / "gemini-prism" / "projects" / p_hash / "expression.json"
     try:
         candidate.parent.mkdir(parents=True, exist_ok=True)
         if os.access(candidate.parent, os.W_OK):
             return candidate
     except OSError:
         pass
-    fallback = Path("/tmp") / "gemini-prism" / "expression.json"
+    fallback = Path("/tmp") / "gemini-prism" / "projects" / p_hash / "expression.json"
     fallback.parent.mkdir(parents=True, exist_ok=True)
     return fallback
 
@@ -69,17 +181,56 @@ def _write_single_expr_file(dest: Path, payload: Dict[str, Any]) -> None:
             pass
 
 
-def _atomic_write_expr(target: Path, payload: Dict[str, Any]) -> None:
+def _atomic_write_expr(target: Path, payload: Dict[str, Any], environ: Optional[Dict[str, str]] = None) -> None:
     _write_single_expr_file(target, payload)
-    # Mirror between ~/.local/state/gemini-prism/expression.json and /tmp/gemini-prism/expression.json
-    # so the host terminal pane and the sandboxed Antigravity agent always see each other's side-chat messages
-    if target.name == "expression.json" and target.parent.name == "gemini-prism":
-        tmp_mirror = Path("/tmp") / "gemini-prism" / "expression.json"
-        if target.resolve() != tmp_mirror.resolve():
-            try:
-                _write_single_expr_file(tmp_mirror, payload)
-            except Exception:
-                pass
+    # Mirror between ~/.local/state/gemini-prism/projects/<hash>/expression.json and /tmp/gemini-prism/projects/<hash>/expression.json
+    # so the host terminal pane and the sandboxed Antigravity agent always see each other's updates for the same project
+    if target.name == "expression.json" and _is_default_state_home(environ):
+        if target.parent.parent.name == "projects":
+            tmp_mirror = Path("/tmp") / "gemini-prism" / "projects" / target.parent.name / "expression.json"
+            if target.resolve() != tmp_mirror.resolve():
+                try:
+                    _write_single_expr_file(tmp_mirror, payload)
+                except Exception:
+                    pass
+
+
+def compute_paint_stats(
+    project_dir: Path,
+    *,
+    scope: str = "session",
+    session_start: float = 0.0,
+    active_painting: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Compute truthful session and directory painting counts and token totals for the project."""
+    clean_scope = "dir" if str(scope).lower().strip() in ("dir", "directory", "folder", "all") else "session"
+    if painter is None:
+        tok = int((active_painting or {}).get("tokens") or 2100)
+        return {"paintings": 1, "tokens": tok, "dirPaintings": 1, "scope": clean_scope}
+
+    all_dir = painter.load_session_paintings(project_dir, session_start=0.0)
+    if clean_scope == "dir" or session_start <= 0.0:
+        scoped = all_dir
+    else:
+        scoped = painter.load_session_paintings(project_dir, session_start=session_start, strict_session=True)
+        if not scoped and active_painting:
+            scoped = [active_painting]
+
+    n_scoped = max(1, len(scoped)) if (scoped or active_painting) else 0
+    n_dir = max(n_scoped, len(all_dir))
+    if scoped:
+        tokens_total = sum(int(p.get("tokens") or 2100) for p in scoped)
+    elif active_painting:
+        tokens_total = int(active_painting.get("tokens") or 2100)
+    else:
+        tokens_total = 0
+
+    return {
+        "paintings": max(1, n_scoped),
+        "tokens": max(2100 if n_scoped else 0, tokens_total),
+        "dirPaintings": max(1, n_dir),
+        "scope": clean_scope,
+    }
 
 
 def write_expression(
@@ -91,14 +242,20 @@ def write_expression(
     art: Optional[List[str]] = None,
     painting: Optional[Dict[str, Any]] = None,
     paint_mode: Optional[str] = None,
+    paint_scope: Optional[str] = None,
+    session_start: Optional[float] = None,
+    session_id: Optional[str] = None,
+    project_dir: Optional[Path] = None,
+    reset_session: bool = False,
     job: Optional[Dict[str, Any]] = None,
     ttl: float = 0.0,
     environ: Optional[Dict[str, str]] = None,
     save_shared_json: bool = True,
 ) -> Dict[str, Any]:
-    """Atomically write an expressive update (and optional painting) to Prism's terminal channel."""
-    target = expression_file_path(environ)
-    prev = read_expression(environ) or {}
+    """Atomically write an expressive update (and optional painting) to Prism's directory-scoped terminal channel."""
+    proj = resolve_project_dir(project_dir, environ)
+    target = expression_file_path(environ, project_dir=proj)
+    prev = {} if reset_session else (read_expression(environ, project_dir=proj) or {})
     now = time.time()
     clean_mood = (
         mood.lower().strip()
@@ -122,26 +279,51 @@ def write_expression(
     )
     raw_pm = str(paint_mode if paint_mode is not None else (prev.get("paintMode") or "live")).lower().strip()
     clean_paint_mode = "work" if raw_pm in ("work", "relative", "story-mode") else "live"
+
+    raw_scope = str(
+        paint_scope
+        if paint_scope is not None
+        else (os.environ.get("PRISM_PAINT_SCOPE") or prev.get("paintScope") or "session")
+    ).lower().strip()
+    clean_scope = "dir" if raw_scope in ("dir", "directory", "folder", "all") else "session"
+
+    eff_session_start = float(
+        session_start
+        if session_start is not None
+        else (prev.get("sessionStart") or os.environ.get("PRISM_SESSION_START") or now)
+    )
+    eff_session_id = session_id if session_id is not None else prev.get("sessionId")
     ttl_val = float(ttl) if isinstance(ttl, (int, float)) and ttl >= 0 else 0.0
 
     active_painting = prev.get("painting")
-    paint_stats = prev.get("paintStats") or {"paintings": 0, "tokens": 0}
+    paint_stats = prev.get("paintStats") or {"paintings": 0, "tokens": 0, "dirPaintings": 0, "scope": clean_scope}
     if painting is not None and painter is not None:
         parsed_p = painter.parse_painting(painting, default_by=str(painting.get("by") or "prism"))
         if parsed_p:
             if not painting.get("at"):
                 parsed_p["at"] = now
             active_painting = parsed_p
-            paint_stats = {
-                "paintings": int(paint_stats.get("paintings", 0)) + 1,
-                "tokens": int(paint_stats.get("tokens", 0)) + int(parsed_p.get("tokens") or 2100),
-            }
-            # §1 Always write Prism's paintings to prism-paintings/NN-title.json so Spark can read them
+            # §1 Always write Prism's paintings to <project_dir>/prism-paintings/NN-title.json so Spark can read them
             if save_shared_json and parsed_p.get("by", "prism") == "prism":
                 try:
-                    painter.save_painting_json(parsed_p)
+                    saved_p = painter.save_painting_json(parsed_p, gallery_dir=proj / "prism-paintings")
+                    if saved_p:
+                        parsed_p["_file"] = str(saved_p)
                 except Exception:
                     pass
+            paint_stats = compute_paint_stats(
+                proj,
+                scope=clean_scope,
+                session_start=eff_session_start,
+                active_painting=active_painting,
+            )
+    elif paint_scope is not None or session_start is not None or reset_session:
+        paint_stats = compute_paint_stats(
+            proj,
+            scope=clean_scope,
+            session_start=eff_session_start,
+            active_painting=active_painting,
+        )
 
     thought_val = (
         str(thought).strip()[:240]
@@ -154,6 +336,10 @@ def write_expression(
 
     payload = {
         "v": 1,
+        "projectDir": str(proj),
+        "sessionId": eff_session_id,
+        "sessionStart": eff_session_start,
+        "paintScope": clean_scope,
         "thought": thought_val,
         "mood": clean_mood,
         "effect": clean_effect,
@@ -168,7 +354,7 @@ def write_expression(
         "expiresAt": (now + ttl_val) if ttl_val > 0 else None,
     }
 
-    _atomic_write_expr(target, payload)
+    _atomic_write_expr(target, payload, environ=environ)
     return payload
 
 
@@ -177,10 +363,12 @@ def append_chat_exchange(
     prism_reply: str,
     *,
     environ: Optional[Dict[str, str]] = None,
+    project_dir: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
-    """Append a user message and Prism's painting-chat response to expression.json."""
-    target = expression_file_path(environ)
-    prev = read_expression(environ) or {"v": 1}
+    """Append a user message and Prism's painting-chat response to the project's expression.json."""
+    proj = resolve_project_dir(project_dir, environ)
+    target = expression_file_path(environ, project_dir=proj)
+    prev = read_expression(environ, project_dir=proj) or {"v": 1, "projectDir": str(proj)}
     now = time.time()
     chat_list = prev.get("chat") if isinstance(prev.get("chat"), list) else []
     if user_text.strip():
@@ -191,7 +379,7 @@ def append_chat_exchange(
     prev["chat"] = chat_list
     prev["updatedAt"] = now
     try:
-        _atomic_write_expr(target, prev)
+        _atomic_write_expr(target, prev, environ=environ)
     except Exception:
         pass
     return chat_list
@@ -203,10 +391,12 @@ def update_job_progress(
     *,
     done: bool = False,
     environ: Optional[Dict[str, str]] = None,
+    project_dir: Optional[Path] = None,
 ) -> None:
     """Update background job progress (convert / roll) in expression.json so any live pane redraws it."""
-    target = expression_file_path(environ)
-    prev = read_expression(environ) or {"v": 1}
+    proj = resolve_project_dir(project_dir, environ)
+    target = expression_file_path(environ, project_dir=proj)
+    prev = read_expression(environ, project_dir=proj) or {"v": 1, "projectDir": str(proj)}
     now = time.time()
     prev["job"] = (
         None
@@ -220,17 +410,23 @@ def update_job_progress(
     )
     prev["updatedAt"] = now
     try:
-        _atomic_write_expr(target, prev)
+        _atomic_write_expr(target, prev, environ=environ)
     except Exception:
         pass
 
 
-def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting: bool = False) -> bool:
+def clear_expression(
+    environ: Optional[Dict[str, str]] = None,
+    *,
+    clear_painting: bool = False,
+    project_dir: Optional[Path] = None,
+) -> bool:
     """Clear Prism's custom thought/voice while preserving her permanent painting spot unless clear_painting=True."""
-    target = expression_file_path(environ)
+    proj = resolve_project_dir(project_dir, environ)
+    target = expression_file_path(environ, project_dir=proj)
     try:
         if not clear_painting:
-            prev = read_expression(environ)
+            prev = read_expression(environ, project_dir=proj)
             if isinstance(prev, dict) and prev.get("painting"):
                 write_expression(
                     "",
@@ -238,11 +434,16 @@ def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting
                     effect=None,
                     glyph=None,
                     art=[],
+                    project_dir=proj,
                     environ=environ,
                 )
                 return True
         if target.is_file():
             target.unlink()
+        if _is_default_state_home(environ) and target.parent.parent.name == "projects":
+            tmp_mirror = Path("/tmp") / "gemini-prism" / "projects" / target.parent.name / "expression.json"
+            if tmp_mirror.is_file():
+                tmp_mirror.unlink()
         return True
     except OSError:
         return False
@@ -251,21 +452,29 @@ def clear_expression(environ: Optional[Dict[str, str]] = None, *, clear_painting
 _EXPR_FILE_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
 
 
-def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """Read the active expression; if a thought TTL expired, keep the permanent painting spot intact.
+def read_expression(
+    environ: Optional[Dict[str, str]] = None,
+    now: Optional[float] = None,
+    project_dir: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Read the active directory-scoped expression; if a thought TTL expired, keep the permanent painting spot intact.
     Checks both primary state_home and /tmp/gemini-prism fallback (when not overridden) and picks the freshest.
     """
     env = os.environ if environ is None else environ
     override = env.get("PRISM_EXPRESSION_FILE")
+    proj: Optional[Path] = None
     if override:
         candidates = [Path(override)]
     else:
+        proj = resolve_project_dir(project_dir, env)
+        p_hash = _project_hash(proj)
         home = env.get("HOME", "/tmp")
         state_home = Path(env.get("XDG_STATE_HOME") or (Path(home) / ".local" / "state"))
         candidates = [
-            state_home / "gemini-prism" / "expression.json",
-            Path("/tmp") / "gemini-prism" / "expression.json",
+            state_home / "gemini-prism" / "projects" / p_hash / "expression.json",
         ]
+        if _is_default_state_home(env):
+            candidates.append(Path("/tmp") / "gemini-prism" / "projects" / p_hash / "expression.json")
 
     best_data: Optional[Dict[str, Any]] = None
     best_ts = -1.0
@@ -284,6 +493,12 @@ def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[floa
                     _EXPR_FILE_CACHE[cache_k] = data
             if not isinstance(data, dict) or data.get("v") != 1:
                 continue
+            if proj is not None and data.get("projectDir"):
+                try:
+                    if Path(data["projectDir"]).resolve() != proj:
+                        continue
+                except OSError:
+                    pass
             upd = float(data.get("updatedAt") or 0.0)
             if upd > best_ts:
                 best_ts = upd
@@ -300,11 +515,16 @@ def read_expression(environ: Optional[Dict[str, str]] = None, now: Optional[floa
         if best_data.get("painting"):
             return {
                 "v": 1,
+                "projectDir": best_data.get("projectDir"),
+                "sessionId": best_data.get("sessionId"),
+                "sessionStart": best_data.get("sessionStart"),
+                "paintScope": best_data.get("paintScope", "session"),
                 "thought": "",
                 "mood": best_data.get("mood"),
                 "effect": None,
                 "glyph": None,
                 "art": [],
+                "paintMode": best_data.get("paintMode", "live"),
                 "painting": best_data.get("painting"),
                 "paintStats": best_data.get("paintStats"),
                 "chat": best_data.get("chat") if isinstance(best_data.get("chat"), list) else [],
@@ -523,15 +743,17 @@ def handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     "id": req_id,
                     "error": {"code": -32602, "message": "Invalid painting marks"},
                 }
+            proj_dir = resolve_project_dir()
             write_expression(
                 thought=args.get("thought") or paint_obj.get("thought") or None,
                 mood=args.get("mood") or paint_obj.get("mood"),
                 painting=paint_obj,
+                project_dir=proj_dir,
             )
             svg_msg = ""
             if args.get("convert"):
                 way = str(args.get("way") or "truest")
-                conv_res = painter.convert_painting(paint_obj, way=way)
+                conv_res = painter.convert_painting(paint_obj, gallery_dir=proj_dir / "prism-paintings", way=way)
                 svg_msg = f" (exported {way} SVG & PNG to {conv_res['svg']})"
             return {
                 "jsonrpc": "2.0",

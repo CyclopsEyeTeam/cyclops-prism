@@ -84,13 +84,16 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+export PRISM_PROJECT_DIR="${PRISM_PROJECT_DIR:-$(pwd -P)}"
+export PRISM_SESSION_START="${PRISM_SESSION_START:-$(date +%s)}"
+
 # If non-interactive (piped, scripts, or dumb terminal), pass straight through to agy
 if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-}" = "dumb" ]; then
     exec "$AGY_BIN" "${FILTERED_ARGS[@]}"
 fi
 
 # Command invocation
-PRISM_CMD="$PRISM_BIN"
+PRISM_CMD="PRISM_PROJECT_DIR=${PRISM_PROJECT_DIR@Q} PRISM_SESSION_START=${PRISM_SESSION_START@Q} PRISM_PAINT_SCOPE=${PRISM_PAINT_SCOPE:-session} $PRISM_BIN"
 
 # Helper: Launch in native GUI window (GNOME Terminal / xterm) without tmux
 launch_native_window() {

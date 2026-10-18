@@ -326,6 +326,8 @@ def parse_painting(raw_input, default_by: str = "prism") -> Optional[dict]:
     }
     if raw.get("opening"):
         out_dict["opening"] = True
+    if raw.get("_file"):
+        out_dict["_file"] = str(raw["_file"])
     thought = str(raw.get("thought") or "").strip()[:160]
     if thought:
         out_dict["thought"] = thought
@@ -938,11 +940,13 @@ def generate_opening_painting(now: Optional[float] = None, seed_word: Optional[s
 def load_session_paintings(
     project_dir: Optional[Path] = None,
     session_start: float = 0.0,
+    strict_session: bool = False,
 ) -> List[dict]:
     """§1 Sharing paintings (both directions):
     Read `prism-paintings/*.json` and `spark-paintings/*.json` in the project directory.
     Never modifies `spark-paintings/`. Skips any file that won't parse.
-    Filters by `at >= session_start` (falling back to all valid paintings if none match `session_start`).
+    Filters by `at >= session_start` (falling back to all valid paintings if none match `session_start`
+    unless `strict_session=True`).
     Returns paintings sorted in chronological order (`at`).
     """
     base = Path(project_dir) if project_dir else Path.cwd()
@@ -985,8 +989,8 @@ def load_session_paintings(
 
     all_valid.sort(key=lambda p: (float(p.get("at") or 0.0), p.get("_file", "")))
     if session_start > 0.0:
-        in_session = [p for p in all_valid if float(p.get("at") or 0.0) >= session_start]
-        if in_session:
+        in_session = [p for p in all_valid if float(p.get("at") or 0.0) >= session_start - 1.0]
+        if in_session or strict_session:
             return in_session
     return all_valid
 
@@ -1083,6 +1087,8 @@ def draw_painting_block(
 
     stats = session_stats or {}
     total_paintings = max(1, int(stats.get("paintings", 1)))
+    dir_paintings = int(stats.get("dirPaintings") or total_paintings)
+    scope_mode = str(stats.get("scope") or "session").lower()
     tokens_this = int(painting.get("tokens") or 2100)
     tokens_total = max(tokens_this, int(stats.get("tokens", tokens_this * total_paintings)))
     model_name = str(painting.get("model") or "prism-muse")
@@ -1106,9 +1112,15 @@ def draw_painting_block(
         meta_lines = [story_line, "__STORY_CONTROLS__"]
     else:
         credit_prefix = "Spark's painting · " if by_author == "spark" else "this painting · "
+        if scope_mode == "dir":
+            sess_line = f"directory · {total_paintings} {'painting' if total_paintings == 1 else 'paintings'} · {_kilo(tokens_total)} tokens"
+        else:
+            sess_line = f"session · {total_paintings} {'painting' if total_paintings == 1 else 'paintings'} · {_kilo(tokens_total)} tokens"
+            if dir_paintings > total_paintings:
+                sess_line += f" · dir {dir_paintings}"
         meta_lines = [
             f"{credit_prefix}{_kilo(tokens_this)} tokens" + (" · her opening" if painting.get("opening") else ""),
-            f"session · {total_paintings} {'painting' if total_paintings == 1 else 'paintings'} · {_kilo(tokens_total)} tokens",
+            sess_line,
             f"({model_name})" if by_author != "spark" else "(Spark · shared canvas)",
         ]
         if avail_rows < 7:

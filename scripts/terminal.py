@@ -1118,7 +1118,9 @@ def render_prism_frame(
 
         if menu_step in (1, 2):
             # §4 Interactive Convert Menu asking two questions, each choice showing its cost
-            n_sess = max(1, int(ui.get("session_count") or (expr.get("paintStats") or {}).get("paintings") or 1))
+            p_stats = (expr.get("paintStats") if isinstance(expr.get("paintStats"), dict) else {}) or {}
+            n_sess = max(1, int(ui.get("session_count") or p_stats.get("paintings") or 1))
+            n_dir = max(n_sess, int(ui.get("dir_count") or p_stats.get("dirPaintings") or n_sess))
             m_top = paint_top_y + 1
             hdr_col = C_GOLD if use_color else ""
             opt_col = C_CYAN if use_color else ""
@@ -1126,16 +1128,26 @@ def render_prism_frame(
             mx = max(2, (width - min(width - 4, 48)) // 2)
             if menu_step == 1:
                 hdr = "⇪ convert · what?" if unicode_mode else "^ convert - what?"
-                opts = [
-                    ("1. This painting", "0–2.4k tokens", "menu_what_this"),
-                    ("2. Every way", "~4.5k tokens", "menu_what_every"),
-                    (f"3. All {n_sess} {'painting' if n_sess == 1 else 'paintings'}", f"0–{2.4 * n_sess:.1f}k tokens", "menu_what_all"),
-                    ("4. The roll", "no tokens", "menu_what_roll"),
-                    ("✕ cancel" if unicode_mode else "x cancel", "", "menu_cancel"),
-                ]
+                if n_dir > n_sess:
+                    opts = [
+                        ("1. This painting", "0–2.4k tokens", "menu_what_this"),
+                        ("2. Every way", "~4.5k tokens", "menu_what_every"),
+                        (f"3. Session ({n_sess} {'painting' if n_sess == 1 else 'paintings'})", f"0–{2.4 * n_sess:.1f}k tokens", "menu_what_all"),
+                        (f"4. Directory ({n_dir} saved)", f"0–{2.4 * n_dir:.1f}k tokens", "menu_what_dir"),
+                        ("5. The roll", "no tokens", "menu_what_roll"),
+                        ("✕ cancel" if unicode_mode else "x cancel", "", "menu_cancel"),
+                    ]
+                else:
+                    opts = [
+                        ("1. This painting", "0–2.4k tokens", "menu_what_this"),
+                        ("2. Every way", "~4.5k tokens", "menu_what_every"),
+                        (f"3. All {n_sess} {'painting' if n_sess == 1 else 'paintings'}", f"0–{2.4 * n_sess:.1f}k tokens", "menu_what_all"),
+                        ("4. The roll", "no tokens", "menu_what_roll"),
+                        ("✕ cancel" if unicode_mode else "x cancel", "", "menu_cancel"),
+                    ]
             else:
                 target_lbl = ui.get("convert_target", "this")
-                mult = n_sess if target_lbl == "all" else 1
+                mult = n_dir if target_lbl == "dir" else (n_sess if target_lbl == "all" else 1)
                 hdr = "⇪ convert · which way?" if unicode_mode else "^ convert - which way?"
                 opts = [
                     ("1. Truest · terminal cell weight & 16-level steps", "no tokens", "menu_way_truest"),
@@ -1779,11 +1791,12 @@ def handle_paint(argv: List[str]) -> None:
         sys.exit(1)
 
     pp = argparse.ArgumentParser(prog="prism paint", description="Paint a 24-bit half-block artwork below Prism in her terminal companion")
-    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('live', 'work', 'opening', 'convert', 'clear', 'off'), or title")
+    pp.add_argument("action", nargs="*", help="Optional preset index (0..3), keyword ('live', 'work', 'session', 'dir', 'reset', 'opening', 'convert', 'clear', 'off'), or title")
     pp.add_argument("--title", default=None, help="Custom painting title ('✎ Title')")
     pp.add_argument("--thought", default=None, help="Optional thought line for Prism to say above the painting")
     pp.add_argument("--mood", choices=list(MOOD_STOPS.keys()), default=None, help="Chromatic mood palette")
     pp.add_argument("--mode", dest="paint_mode", choices=["live", "work", "relative"], default=None, help="Painting muse mode: 'live' (poetic) or 'work' (work story)")
+    pp.add_argument("--scope", dest="paint_scope", choices=["session", "dir", "directory", "folder"], default=None, help="Scope paintings to current 'session' or entire 'dir'")
     pp.add_argument("--shape", choices=["wide", "square", "tall"], default=None, help="Canvas shape")
     pp.add_argument("--opening", action="store_true", help="Seed a session opening painting from only the hour, month, and one random word")
     pp.add_argument("--json", dest="json_marks", default=None, help="Raw JSON string with {'title': ..., 'marks': [...]}")
@@ -1799,6 +1812,46 @@ def handle_paint(argv: List[str]) -> None:
 
     if words and words[0].lower() == "convert":
         handle_convert(words[1:])
+        return
+
+    if words and words[0].lower() == "scope" and len(words) > 1:
+        words = words[1:]
+
+    if words and words[0].lower() in ("reset", "new-session", "new_session"):
+        now_reset = time.time()
+        open_p = painter.generate_opening_painting(now=now_reset)
+        payload = mcp_server.write_expression(
+            thought="",
+            mood=open_p.get("mood"),
+            painting=open_p,
+            paint_scope="session",
+            session_start=now_reset,
+            reset_session=True,
+        )
+        st = payload.get("paintStats") or {}
+        print(f"✓ Started fresh painting session in {Path.cwd().name}: \"{open_p['title']}\" (session paintings: {st.get('paintings', 1)}, dir total: {st.get('dirPaintings', 1)})")
+        return
+
+    if (parsed.paint_scope or (words and words[0].lower() in ("session", "dir", "directory", "folder"))) and not parsed.json_marks and not parsed.title and len(words) <= 1:
+        chosen_sc = str(parsed.paint_scope or words[0]).lower()
+        norm_sc = "dir" if chosen_sc in ("dir", "directory", "folder") else "session"
+        cur_e = mcp_server.read_expression() or {}
+        s_start = float(cur_e.get("sessionStart") or time.time())
+        plist = (
+            painter.load_session_paintings(Path.cwd(), session_start=0.0)
+            if norm_sc == "dir"
+            else painter.load_session_paintings(Path.cwd(), session_start=s_start, strict_session=True)
+        )
+        latest_p = plist[-1] if plist else (cur_e.get("painting") or painter.generate_opening_painting())
+        payload = mcp_server.write_expression(
+            painting=latest_p,
+            paint_scope=norm_sc,
+            session_start=s_start,
+            save_shared_json=False,
+        )
+        st = payload.get("paintStats") or {}
+        lbl_sc = "Directory (all saved in folder)" if norm_sc == "dir" else "Session (current session only)"
+        print(f"✓ Prism painting scope set to {lbl_sc} · {st.get('paintings', 1)} paintings active (dir total: {st.get('dirPaintings', 1)})")
         return
 
     cur = mcp_server.read_expression() or {}
@@ -1855,6 +1908,7 @@ def handle_paint(argv: List[str]) -> None:
         mood=parsed.mood or paint_obj.get("mood"),
         painting=paint_obj,
         paint_mode=effective_mode,
+        paint_scope=parsed.paint_scope,
     )
     svg_note = ""
     if parsed.convert:
@@ -1867,14 +1921,14 @@ def handle_paint(argv: List[str]) -> None:
 
 def handle_convert(argv: List[str]) -> None:
     """CLI handler for `prism convert` (§4):
-    Supports `this`, `every-way` (`every`), `all`, or `roll`, plus `truest`, `layered`, `faithful`, `refined`, `interpretive`, and `hd`/`4k`.
+    Supports `this`, `every-way` (`every`), `all` (`session`), `dir` (`directory`), or `roll`, plus `truest`, `layered`, `faithful`, `refined`, `interpretive`, and `hd`/`4k`.
     """
     if painter is None:
         print("Painter module is not available.")
         sys.exit(1)
 
-    cp = argparse.ArgumentParser(prog="prism convert", description="Convert session paintings to high-res SVG + PNG + HTML gallery")
-    cp.add_argument("tokens", nargs="*", help="[this|every|all|roll] [truest|layered|faithful|refined|interpretive] [hd|4k]")
+    cp = argparse.ArgumentParser(prog="prism convert", description="Convert session or directory paintings to high-res SVG + PNG + HTML gallery")
+    cp.add_argument("tokens", nargs="*", help="[this|every|all|session|dir|roll] [truest|layered|faithful|refined|interpretive] [hd|4k]")
     cp.add_argument("--way", choices=["truest", "layered", "faithful", "refined", "interpretive"], default=None)
     cp.add_argument("--size", choices=["hd", "4k"], default="hd")
     cp.add_argument("--out", type=Path, default=None)
@@ -1893,6 +1947,8 @@ def handle_convert(argv: List[str]) -> None:
             what = "every"
         elif tl in ("all", "session"):
             what = "all"
+        elif tl in ("dir", "directory", "folder"):
+            what = "dir"
         elif tl == "roll":
             what = "roll"
         elif tl in ("truest", "layered", "faithful", "refined", "interpretive"):
@@ -1908,7 +1964,10 @@ def handle_convert(argv: List[str]) -> None:
         return
 
     out_dir = parsed.out or (Path.cwd() / "prism-paintings")
-    session_paintings = painter.load_session_paintings(Path.cwd())
+    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
+    cur_scope = str(cur_expr.get("paintScope") or "session").lower()
+    s_start = 0.0 if (what == "dir" or cur_scope == "dir") else float(cur_expr.get("sessionStart") or 0.0)
+    session_paintings = painter.load_session_paintings(Path.cwd(), session_start=s_start)
     cur_p = None
     if parsed.file and parsed.file.is_file():
         try:
@@ -1916,7 +1975,6 @@ def handle_convert(argv: List[str]) -> None:
         except Exception:
             cur_p = None
     if not cur_p:
-        cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
         cur_p = cur_expr.get("painting") or (session_paintings[-1] if session_paintings else painter.choose_curated_painting(0))
 
     last_p_time = [0.0]
@@ -1944,8 +2002,12 @@ def handle_convert(argv: List[str]) -> None:
             res = painter.convert_painting(cur_p, gallery_dir=out_dir, way=w_item, size=size)
             results.append(res)
         _prog(f"crystallized all {n_w} ways · “{cur_p.get('title', '')[:20]}”", 1.0)
-    elif what == "all":
-        targets = session_paintings if session_paintings else [cur_p]
+    elif what in ("all", "dir"):
+        targets = (
+            painter.load_session_paintings(Path.cwd(), session_start=0.0)
+            if what == "dir"
+            else (session_paintings if session_paintings else [cur_p])
+        )
         n_t = len(targets)
         for idx, p_item in enumerate(targets):
             _prog(f"laying down “{p_item.get('title', '')[:20]}” · {idx + 1}/{n_t}", idx / float(n_t))
@@ -1970,6 +2032,7 @@ def handle_roll(argv: List[str]) -> None:
 
     rp = argparse.ArgumentParser(prog="prism roll", description="Build the session MP4 video & procedural music roll")
     rp.add_argument("mode", nargs="?", default="720p", help="Resolution mode: 720p (default), hd (1080p), or short (1080x1920 upright)")
+    rp.add_argument("--dir", action="store_true", help="Include all saved paintings in directory rather than current session only")
     rp.add_argument("--out", type=Path, default=None)
     rp.add_argument("--progress-json", action="store_true", help="Emit JSON progress lines for parent UI pipe")
     parsed = rp.parse_args(argv)
@@ -1979,9 +2042,11 @@ def handle_roll(argv: List[str]) -> None:
         mode_str = "720p"
 
     out_dir = parsed.out or (Path.cwd() / "prism-paintings")
-    paintings = painter.load_session_paintings(Path.cwd())
+    cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
+    cur_scope = str(cur_expr.get("paintScope") or "session").lower()
+    s_start = 0.0 if (parsed.dir or cur_scope == "dir") else float(cur_expr.get("sessionStart") or 0.0)
+    paintings = painter.load_session_paintings(Path.cwd(), session_start=s_start)
     if not paintings:
-        cur_expr = (mcp_server.read_expression() or {}) if mcp_server else {}
         paintings = [cur_expr.get("painting") or painter.generate_opening_painting()]
 
     last_p_time = [0.0]
@@ -2128,7 +2193,8 @@ def main():
     use_color = not (args.no_color or "NO_COLOR" in os.environ)
     unicode_mode = not args.plain
 
-    # Resolve feed path
+    # Resolve project directory and feed path
+    project_dir = Path(os.environ.get("PRISM_PROJECT_DIR") or Path.cwd()).resolve()
     feed_dir = args.feed
     if not feed_dir and not args.demo and not args.demo_state and presence_feed and hasattr(presence_feed, "find_active_feed"):
         feed_dir = presence_feed.find_active_feed()
@@ -2146,10 +2212,19 @@ def main():
         else:
             state = get_demo_state(0.0, forced_state="idle")
 
-        expr_once = mcp_server.read_expression() if (mcp_server is not None and not args.demo and not args.demo_state) else None
+        expr_once = (
+            mcp_server.read_expression(project_dir=project_dir)
+            if (mcp_server is not None and not args.demo and not args.demo_state)
+            else None
+        )
         ui_once = None
         if args.story and painter is not None:
-            s_paintings = painter.load_session_paintings(Path.cwd())
+            sess_start_once = float((expr_once or {}).get("sessionStart") or os.environ.get("PRISM_SESSION_START") or 0.0)
+            scope_once = str((expr_once or {}).get("paintScope") or os.environ.get("PRISM_PAINT_SCOPE") or "session").lower()
+            s_paintings = painter.load_session_paintings(
+                project_dir,
+                session_start=(0.0 if scope_once == "dir" else sess_start_once),
+            )
             if s_paintings:
                 ui_once = {
                     "story": {
@@ -2219,12 +2294,105 @@ def main():
         t0 = time.time()
         last_feed_check = 0.0
         last_expr_check = -1.0
-        expr_state = mcp_server.read_expression() if mcp_server is not None else None
-        if isinstance(expr_state, dict) and mcp_server is not None:
-            try:
-                mcp_server._atomic_write_expr(mcp_server.expression_file_path(), expr_state)
-            except Exception:
-                pass
+        cur_session_id = (
+            feed_dir.parent.name
+            if (feed_dir and feed_dir.is_dir() and feed_dir.name == "prism")
+            else (os.environ.get("PRISM_SESSION_ID") or None)
+        )
+        try:
+            env_sess_start = float(os.environ.get("PRISM_SESSION_START") or 0.0)
+        except ValueError:
+            env_sess_start = 0.0
+        is_hot_reload = os.environ.get("PRISM_RELOADED") == "1"
+
+        expr_state = mcp_server.read_expression(project_dir=project_dir) if mcp_server is not None else None
+        prev_sess_start = float(expr_state.get("sessionStart") or 0.0) if isinstance(expr_state, dict) else 0.0
+        prev_sess_id = str(expr_state.get("sessionId") or "") if isinstance(expr_state, dict) else ""
+        raw_init_scope = str(
+            os.environ.get("PRISM_PAINT_SCOPE")
+            or ((expr_state or {}).get("paintScope") if isinstance(expr_state, dict) else None)
+            or "session"
+        ).lower().strip()
+        paint_scope = "dir" if raw_init_scope in ("dir", "directory", "folder", "all") else "session"
+
+        same_session = False
+        if isinstance(expr_state, dict) and prev_sess_start > 0.0:
+            if is_hot_reload:
+                same_session = True
+            elif env_sess_start > 0.0 and abs(prev_sess_start - env_sess_start) < 15.0:
+                same_session = True
+            elif cur_session_id and prev_sess_id and cur_session_id == prev_sess_id:
+                same_session = True
+            elif (t0 - prev_sess_start) < 30.0:
+                same_session = True
+
+        all_dir_paintings = painter.load_session_paintings(project_dir, session_start=0.0) if painter is not None else []
+        default_painting = None
+        if same_session and isinstance(expr_state, dict):
+            session_start = prev_sess_start
+            scoped_existing = (
+                all_dir_paintings
+                if paint_scope == "dir"
+                else (
+                    painter.load_session_paintings(project_dir, session_start=session_start, strict_session=True)
+                    if painter is not None
+                    else []
+                )
+            )
+            if isinstance(expr_state.get("painting"), dict):
+                default_painting = expr_state["painting"]
+            elif scoped_existing:
+                default_painting = scoped_existing[-1]
+            elif all_dir_paintings:
+                default_painting = all_dir_paintings[-1]
+            if mcp_server is not None and not args.demo and not args.demo_state:
+                mcp_server.set_active_project(project_dir, session_id=cur_session_id, session_start=session_start)
+                try:
+                    mcp_server._atomic_write_expr(mcp_server.expression_file_path(project_dir=project_dir), expr_state)
+                except Exception:
+                    pass
+        else:
+            # New session in this project directory
+            session_start = env_sess_start if env_sess_start > 0.0 else t0
+            if painter is not None:
+                if (
+                    expr_state is None
+                    and len(all_dir_paintings) == 1
+                    and (t0 - float(all_dir_paintings[0].get("at") or 0.0)) < 7200.0
+                ):
+                    default_painting = all_dir_paintings[0]
+                    session_start = float(default_painting.get("at") or session_start)
+                elif paint_scope == "dir" and all_dir_paintings:
+                    default_painting = all_dir_paintings[-1]
+                else:
+                    existing_sess = painter.load_session_paintings(
+                        project_dir, session_start=session_start, strict_session=True
+                    )
+                    if existing_sess:
+                        default_painting = existing_sess[-1]
+                    else:
+                        default_painting = painter.generate_opening_painting(now=t0)
+                        try:
+                            saved_open = painter.save_painting_json(default_painting, project_dir / "prism-paintings")
+                            if saved_open:
+                                default_painting["_file"] = str(saved_open)
+                        except Exception:
+                            pass
+                        all_dir_paintings = painter.load_session_paintings(project_dir, session_start=0.0)
+            if mcp_server is not None and not args.demo and not args.demo_state:
+                mcp_server.set_active_project(project_dir, session_id=cur_session_id, session_start=session_start)
+                expr_state = mcp_server.write_expression(
+                    thought=(default_painting or {}).get("thought") or "",
+                    mood=(default_painting or {}).get("mood") or "aurora",
+                    painting=default_painting,
+                    paint_scope=paint_scope,
+                    session_start=session_start,
+                    session_id=cur_session_id,
+                    project_dir=project_dir,
+                    reset_session=True,
+                    save_shared_json=False,
+                )
+
         prev_size = None
         prev_row_lines: List[str] = []
         self_path = Path(__file__).resolve()
@@ -2232,19 +2400,6 @@ def main():
             boot_mtime = self_path.stat().st_mtime
         except OSError:
             boot_mtime = 0.0
-
-        # §6 Your opening: ensure session has an opening painting if none exists yet
-        default_painting = None
-        if painter is not None:
-            existing_sess = painter.load_session_paintings(Path.cwd())
-            if existing_sess:
-                default_painting = existing_sess[-1]
-            else:
-                default_painting = painter.generate_opening_painting()
-                try:
-                    painter.save_painting_json(default_painting)
-                except Exception:
-                    pass
 
         # Autonomous painting cadence tracking:
         # - Paints only on Prism's reply completion (turn.resolve / resolved), never on user message arrival (attending)
@@ -2271,11 +2426,14 @@ def main():
             else "live"
         )
         initial_paint_mode = "work" if raw_init_pm in ("work", "relative", "story-mode") else "live"
+        init_stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else None) or {}
         ui_state: Dict[str, Any] = {
             "story": None,
             "menu_step": 0,
             "convert_target": "this",
-            "session_count": 1,
+            "session_count": max(1, int(init_stats.get("paintings") or 1)),
+            "dir_count": max(1, int(init_stats.get("dirPaintings") or len(all_dir_paintings) or 1)),
+            "paint_scope": paint_scope,
             "paint_mode": initial_paint_mode,
             "chat_active": bool(args.chat),
             "chat_input": "",
@@ -2290,11 +2448,22 @@ def main():
         current_hitboxes: List[dict] = []
         job_lock = threading.Lock()
 
+        def _load_scoped_paintings() -> List[dict]:
+            if painter is None:
+                return []
+            cur_sc = str(ui_state.get("paint_scope") or "session")
+            if cur_sc == "dir":
+                return painter.load_session_paintings(project_dir, session_start=0.0)
+            res = painter.load_session_paintings(project_dir, session_start=session_start, strict_session=True)
+            if not res and default_painting:
+                return [default_painting]
+            return res
+
         def _start_story() -> None:
             nonlocal story_paintings, story_page_started, story_paused_elapsed
             if painter is None:
                 return
-            story_paintings = painter.load_session_paintings(Path.cwd())
+            story_paintings = _load_scoped_paintings()
             if not story_paintings and default_painting:
                 story_paintings = [default_painting]
             if not story_paintings:
@@ -2339,7 +2508,7 @@ def main():
             msgs.append({"role": "prism", "text": reply[:240], "at": now_c})
             ui_state["chat_messages"] = msgs[-16:]
             if mcp_server is not None:
-                mcp_server.append_chat_exchange(text_in, reply)
+                mcp_server.append_chat_exchange(text_in, reply, project_dir=project_dir)
 
         def _launch_background_job(target_what: str, way: str) -> None:
             if painter is None:
@@ -2353,16 +2522,22 @@ def main():
             held_file = held_p.get("_file") if isinstance(held_p, dict) else None
             if not held_file and isinstance(held_p, dict):
                 try:
-                    saved_f = painter.save_painting_json(held_p)
+                    saved_f = painter.save_painting_json(held_p, project_dir / "prism-paintings")
                     if saved_f:
                         held_file = str(saved_f)
                 except Exception:
                     held_file = None
 
+            cur_sc = str(ui_state.get("paint_scope") or "session")
+
             def _worker() -> None:
                 try:
                     if target_what == "roll":
-                        cmd = [sys.executable, str(self_path), "roll", "720p", "--progress-json"]
+                        cmd = [sys.executable, str(self_path), "roll", "720p", "--scope", cur_sc, "--progress-json"]
+                    elif target_what == "dir":
+                        cmd = [sys.executable, str(self_path), "convert", "dir", "--way", way, "--progress-json"]
+                    elif target_what == "all":
+                        cmd = [sys.executable, str(self_path), "convert", "all", "--scope", cur_sc, "--way", way, "--progress-json"]
                     else:
                         cmd = [sys.executable, str(self_path), "convert", target_what, "--way", way, "--progress-json"]
                         if held_file and target_what in ("this", "every"):
@@ -2377,6 +2552,7 @@ def main():
 
                     proc = subprocess.Popen(
                         cmd,
+                        cwd=str(project_dir),
                         stdout=subprocess.PIPE,
                         stderr=subprocess.DEVNULL,
                         text=True,
@@ -2439,8 +2615,12 @@ def main():
                         mood=new_p.get("mood"),
                         painting=new_p,
                         paint_mode=new_pm,
+                        paint_scope=str(ui_state.get("paint_scope") or "session"),
+                        session_start=session_start,
+                        session_id=cur_session_id,
+                        project_dir=project_dir,
                     )
-                    default_painting = new_p
+                    default_painting = expr_state.get("painting") or new_p
             elif action == "tool_story":
                 if isinstance(st, dict) and st.get("active"):
                     ui_state["story"] = None
@@ -2451,8 +2631,10 @@ def main():
                 if ui_state.get("menu_step") in (1, 2):
                     ui_state["menu_step"] = 0
                 else:
-                    s_list = painter.load_session_paintings(Path.cwd()) if painter else []
+                    s_list = _load_scoped_paintings()
+                    d_list = painter.load_session_paintings(project_dir, session_start=0.0) if painter else []
                     ui_state["session_count"] = max(1, len(s_list))
+                    ui_state["dir_count"] = max(ui_state["session_count"], len(d_list))
                     ui_state["menu_step"] = 1
             elif action == "tool_roll":
                 ui_state["menu_step"] = 0
@@ -2469,7 +2651,12 @@ def main():
             elif action == "tool_copy":
                 ok, msg = copy_turn_to_clipboard(emit_osc52=True)
                 if mcp_server:
-                    mcp_server.write_expression(thought=f"⧉ {msg}", ttl=4.0, save_shared_json=False)
+                    mcp_server.write_expression(
+                        thought=f"⧉ {msg}",
+                        ttl=4.0,
+                        project_dir=project_dir,
+                        save_shared_json=False,
+                    )
             elif action == "menu_cancel":
                 ui_state["menu_step"] = 0
             elif action == "menu_back":
@@ -2479,6 +2666,9 @@ def main():
                 ui_state["menu_step"] = 2
             elif action == "menu_what_all":
                 ui_state["convert_target"] = "all"
+                ui_state["menu_step"] = 2
+            elif action == "menu_what_dir":
+                ui_state["convert_target"] = "dir"
                 ui_state["menu_step"] = 2
             elif action == "menu_what_every":
                 ui_state["menu_step"] = 0
@@ -2587,13 +2777,16 @@ def main():
             st = ui_state.get("story")
             m_step = ui_state.get("menu_step", 0)
             if m_step == 1:
+                has_extra_dir = int(ui_state.get("dir_count") or 1) > int(ui_state.get("session_count") or 1)
                 if "1" in buf:
                     _dispatch_action("menu_what_this")
                 elif "2" in buf:
-                    _dispatch_action("menu_what_every")
-                elif "3" in buf:
                     _dispatch_action("menu_what_all")
+                elif "3" in buf:
+                    _dispatch_action("menu_what_dir" if has_extra_dir else "menu_what_every")
                 elif "4" in buf:
+                    _dispatch_action("menu_what_every" if has_extra_dir else "menu_what_roll")
+                elif "5" in buf and has_extra_dir:
                     _dispatch_action("menu_what_roll")
                 elif "\x1b" in buf or "q" in buf:
                     _dispatch_action("menu_cancel")
@@ -2686,6 +2879,7 @@ def main():
                     if boot_mtime > 0.0:
                         try:
                             if self_path.stat().st_mtime > boot_mtime:
+                                os.environ["PRISM_RELOADED"] = "1"
                                 os.execv(sys.executable, [sys.executable] + sys.argv)
                         except OSError:
                             pass
@@ -2694,6 +2888,8 @@ def main():
                         if discovered and discovered != feed_dir:
                             feed_dir = discovered
                             if feed_dir.is_dir():
+                                if feed_dir.name == "prism":
+                                    cur_session_id = feed_dir.parent.name
                                 seen_resolve_seq = max(
                                     seen_resolve_seq,
                                     int(load_feed_state(feed_dir).get("lastResolveSeq") or 0),
@@ -2701,25 +2897,38 @@ def main():
 
                 if mcp_server is not None and not args.demo and not args.demo_state and (t - last_expr_check >= 0.25):
                     last_expr_check = t
-                    expr_state = mcp_server.read_expression()
+                    expr_state = mcp_server.read_expression(project_dir=project_dir)
                     if isinstance(expr_state, dict):
                         if isinstance(expr_state.get("chat"), list):
                             ui_state["chat_messages"] = expr_state["chat"]
                         raw_pm_expr = str(expr_state.get("paintMode") or "").lower().strip()
                         if raw_pm_expr in ("live", "work", "relative", "story-mode"):
                             ui_state["paint_mode"] = "work" if raw_pm_expr in ("work", "relative", "story-mode") else "live"
+                        raw_sc_expr = str(expr_state.get("paintScope") or "").lower().strip()
+                        if raw_sc_expr in ("session", "dir"):
+                            ui_state["paint_scope"] = raw_sc_expr
+                        expr_s_start = float(expr_state.get("sessionStart") or 0.0)
+                        if expr_s_start > 0.0 and abs(expr_s_start - session_start) > 0.5:
+                            session_start = expr_s_start
                     if painter is not None and (t - last_paint_dir_check >= 1.5):
                         last_paint_dir_check = t
-                        latest_shared = painter.load_session_paintings(Path.cwd())
+                        all_dir_latest = painter.load_session_paintings(project_dir, session_start=0.0)
+                        latest_shared = _load_scoped_paintings()
+                        ui_state["session_count"] = max(1, len(latest_shared))
+                        ui_state["dir_count"] = max(ui_state["session_count"], len(all_dir_latest))
                         if latest_shared:
-                            ui_state["session_count"] = len(latest_shared)
                             default_painting = latest_shared[-1]
                     if default_painting is not None:
                         if not isinstance(expr_state, dict):
                             expr_state = {
                                 "v": 1,
                                 "painting": default_painting,
-                                "paintStats": {"paintings": ui_state.get("session_count", 1), "tokens": 2100},
+                                "paintStats": {
+                                    "paintings": ui_state.get("session_count", 1),
+                                    "tokens": 2100,
+                                    "dirPaintings": ui_state.get("dir_count", 1),
+                                    "scope": ui_state.get("paint_scope", "session"),
+                                },
                             }
                         elif not expr_state.get("painting"):
                             expr_state = dict(expr_state, painting=default_painting)
@@ -2797,10 +3006,14 @@ def main():
                             mood=new_p.get("mood"),
                             painting=new_p,
                             paint_mode=cur_pm,
+                            paint_scope=str(ui_state.get("paint_scope") or "session"),
+                            session_start=session_start,
+                            session_id=cur_session_id,
+                            project_dir=project_dir,
                         )
-                        default_painting = new_p
+                        default_painting = expr_state.get("painting") or new_p
                         if ui_state.get("story") and ui_state["story"].get("active"):
-                            story_paintings = painter.load_session_paintings(Path.cwd()) or [new_p]
+                            story_paintings = _load_scoped_paintings() or [default_painting]
                             ui_state["story"]["total"] = len(story_paintings)
 
                     if cur_mode == "resolved":

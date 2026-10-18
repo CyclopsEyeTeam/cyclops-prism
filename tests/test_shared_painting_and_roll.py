@@ -281,6 +281,76 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
             cell_w = sum(terminal._char_cells(ch) for ch in stripped_row)
             self.assertEqual(cell_w, 56, f"Row {row_idx} overflowed/underflowed terminal width: {cell_w} != 56")
 
+    def test_per_directory_and_per_session_isolation(self):
+        import mcp_server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            state_home = tmp_path / "state"
+            dir_a = tmp_path / "project-alpha"
+            dir_b = tmp_path / "project-beta"
+            dir_a.mkdir()
+            dir_b.mkdir()
+            env = {"XDG_STATE_HOME": str(state_home)}
+
+            t_sess1 = 1792200000.0
+            p_a1 = painter.generate_opening_painting(now=t_sess1 + 1.0, seed_word="alpha")
+            expr_a1 = mcp_server.write_expression(
+                thought="Alpha session 1 thought",
+                mood="aurora",
+                painting=p_a1,
+                session_start=t_sess1,
+                project_dir=dir_a,
+                reset_session=True,
+                environ=env,
+            )
+            self.assertEqual(expr_a1["paintStats"]["paintings"], 1)
+            self.assertEqual(expr_a1["paintStats"]["dirPaintings"], 1)
+
+            # Opening project-beta should NOT see project-alpha's expression or paintings
+            self.assertIsNone(mcp_server.read_expression(environ=env, project_dir=dir_b))
+            p_b1 = painter.generate_opening_painting(now=t_sess1 + 10.0, seed_word="beta")
+            expr_b1 = mcp_server.write_expression(
+                thought="Beta clean session",
+                mood="emerald",
+                painting=p_b1,
+                session_start=t_sess1 + 10.0,
+                project_dir=dir_b,
+                reset_session=True,
+                environ=env,
+            )
+            self.assertEqual(expr_b1["paintStats"]["paintings"], 1)
+            self.assertEqual(expr_b1["paintStats"]["dirPaintings"], 1)
+            self.assertEqual(mcp_server.read_expression(environ=env, project_dir=dir_a)["thought"], "Alpha session 1 thought")
+            self.assertEqual(mcp_server.read_expression(environ=env, project_dir=dir_b)["thought"], "Beta clean session")
+
+            # Starting a new session in project-alpha preserves Session 1 painting on disk
+            # while scoping Session 2 count to 1 (and dirPaintings to 2)
+            t_sess2 = t_sess1 + 3600.0
+            p_a2 = painter.generate_opening_painting(now=t_sess2 + 1.0, seed_word="horizon")
+            expr_a2 = mcp_server.write_expression(
+                thought="Alpha session 2 thought",
+                mood="solar",
+                painting=p_a2,
+                session_start=t_sess2,
+                project_dir=dir_a,
+                reset_session=True,
+                environ=env,
+            )
+            self.assertEqual(expr_a2["paintStats"]["paintings"], 1)
+            self.assertEqual(expr_a2["paintStats"]["dirPaintings"], 2)
+            self.assertEqual(expr_a2["paintStats"]["scope"], "session")
+
+            # Switching scope to "dir" in project-alpha includes all 2 paintings in the directory
+            expr_a_dir = mcp_server.write_expression(
+                paint_scope="dir",
+                project_dir=dir_a,
+                environ=env,
+            )
+            self.assertEqual(expr_a_dir["paintStats"]["paintings"], 2)
+            self.assertEqual(expr_a_dir["paintStats"]["dirPaintings"], 2)
+            self.assertEqual(expr_a_dir["paintStats"]["scope"], "dir")
+
 
 if __name__ == "__main__":
     unittest.main()
