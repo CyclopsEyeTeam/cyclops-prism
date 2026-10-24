@@ -351,6 +351,60 @@ class TestSharedPaintingAndRoll(unittest.TestCase):
             self.assertEqual(expr_a_dir["paintStats"]["dirPaintings"], 2)
             self.assertEqual(expr_a_dir["paintStats"]["scope"], "dir")
 
+    def test_paint_option_off_by_default_and_toggle_button(self):
+        import mcp_server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            env = {"XDG_STATE_HOME": str(tmp_path / "state")}
+            proj = tmp_path / "proj"
+            proj.mkdir()
+
+            # 1. Startup default without painting keeps paintEnabled False
+            expr_init = mcp_server.write_expression(
+                thought="",
+                mood="aurora",
+                painting=None,
+                paint_enabled=False,
+                project_dir=proj,
+                reset_session=True,
+                environ=env,
+            )
+            self.assertFalse(expr_init["paintEnabled"])
+            self.assertIsNone(expr_init["painting"])
+
+            state = {"mode": "idle", "ended": False, "offer": None, "activeCalls": 0, "activeBranches": 0, "lanes": [], "hover": "Prism · ready"}
+            hbs_off = []
+            frame_off = terminal.render_prism_frame(
+                state, 72, 30, t=1.0, expression=expr_init, ui_state={"paint_enabled": False}, hitboxes=hbs_off
+            )
+            plain_off = terminal._strip_colors(frame_off)
+            self.assertIn("✎ paint", plain_off)
+            self.assertIn("⧉ copy", plain_off)
+            self.assertNotIn("▶ story", plain_off)
+            self.assertIn("tool_paint_toggle", {h["action"] for h in hbs_off})
+
+            # 2. Turning painting on renders the painting and `✎ on` toggle button
+            p_on = painter.generate_living_painting(step_index=1, paint_mode="live")
+            expr_on = mcp_server.write_expression(
+                thought=p_on.get("thought"),
+                mood=p_on.get("mood"),
+                painting=p_on,
+                paint_enabled=True,
+                project_dir=proj,
+                environ=env,
+            )
+            self.assertTrue(expr_on["paintEnabled"])
+            hbs_on = []
+            frame_on = terminal.render_prism_frame(
+                state, 72, 30, t=1.0, expression=expr_on, ui_state={"paint_enabled": True, "paint_mode": "live"}, hitboxes=hbs_on
+            )
+            plain_on = terminal._strip_colors(frame_on)
+            self.assertIn("✎ on", plain_on)
+            self.assertIn("✦ Live", plain_on)
+            self.assertIn("▶ story", plain_on)
+            self.assertIn("tool_paint_toggle", {h["action"] for h in hbs_on})
+
 
 if __name__ == "__main__":
     unittest.main()

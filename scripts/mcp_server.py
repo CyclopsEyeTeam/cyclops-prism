@@ -241,6 +241,7 @@ def write_expression(
     glyph: Optional[str] = None,
     art: Optional[List[str]] = None,
     painting: Optional[Dict[str, Any]] = None,
+    paint_enabled: Optional[bool] = None,
     paint_mode: Optional[str] = None,
     paint_scope: Optional[str] = None,
     session_start: Optional[float] = None,
@@ -280,6 +281,15 @@ def write_expression(
     raw_pm = str(paint_mode if paint_mode is not None else (prev.get("paintMode") or "live")).lower().strip()
     clean_paint_mode = "work" if raw_pm in ("work", "relative", "story-mode") else "live"
 
+    if paint_enabled is not None:
+        clean_paint_enabled = bool(paint_enabled)
+    elif painting is not None:
+        clean_paint_enabled = True
+    elif "paintEnabled" in prev:
+        clean_paint_enabled = bool(prev.get("paintEnabled"))
+    else:
+        clean_paint_enabled = False
+
     raw_scope = str(
         paint_scope
         if paint_scope is not None
@@ -295,7 +305,7 @@ def write_expression(
     eff_session_id = session_id if session_id is not None else prev.get("sessionId")
     ttl_val = float(ttl) if isinstance(ttl, (int, float)) and ttl >= 0 else 0.0
 
-    active_painting = prev.get("painting")
+    active_painting = None if (paint_enabled is False and painting is None) else prev.get("painting")
     paint_stats = prev.get("paintStats") or {"paintings": 0, "tokens": 0, "dirPaintings": 0, "scope": clean_scope}
     if painting is not None and painter is not None:
         parsed_p = painter.parse_painting(painting, default_by=str(painting.get("by") or "prism"))
@@ -317,7 +327,7 @@ def write_expression(
                 session_start=eff_session_start,
                 active_painting=active_painting,
             )
-    elif paint_scope is not None or session_start is not None or reset_session:
+    elif paint_scope is not None or session_start is not None or reset_session or paint_enabled is not None:
         paint_stats = compute_paint_stats(
             proj,
             scope=clean_scope,
@@ -339,6 +349,7 @@ def write_expression(
         "projectDir": str(proj),
         "sessionId": eff_session_id,
         "sessionStart": eff_session_start,
+        "paintEnabled": clean_paint_enabled,
         "paintScope": clean_scope,
         "thought": thought_val,
         "mood": clean_mood,
@@ -518,6 +529,7 @@ def read_expression(
                 "projectDir": best_data.get("projectDir"),
                 "sessionId": best_data.get("sessionId"),
                 "sessionStart": best_data.get("sessionStart"),
+                "paintEnabled": best_data.get("paintEnabled", True),
                 "paintScope": best_data.get("paintScope", "session"),
                 "thought": "",
                 "mood": best_data.get("mood"),

@@ -442,7 +442,13 @@ def render_prism_frame(
     has_link_peers = bool(
         link_state and any(p.get("presence") != "prism" for p in (link_state.get("peers") or []))
     )
-    has_painting = bool(expr_painting and painter is not None and height >= 20)
+    ui_init = ui_state or {}
+    paint_enabled = bool(
+        ui_init.get("paint_enabled")
+        if "paint_enabled" in ui_init
+        else expr.get("paintEnabled", bool(expr_painting))
+    )
+    has_painting = bool(paint_enabled and expr_painting and painter is not None and height >= 20)
 
     cx = width // 2
     if has_painting:
@@ -1042,8 +1048,9 @@ def render_prism_frame(
         # §2 Only show the tools when there's at least one painting and room to spare, so they never shrink the painting
         if width >= 34 and height >= 20:
             if unicode_mode:
-                if width >= 44:
+                if width >= 62:
                     tool_defs = [
+                        ("✎ on", "tool_paint_toggle"),
                         ("✦ Live", "tool_mode_live"),
                         ("◈ Work", "tool_mode_work"),
                         ("▶ story", "tool_story"),
@@ -1053,6 +1060,7 @@ def render_prism_frame(
                 else:
                     mode_lbl = "◈ Work" if paint_mode == "work" else "✦ Live"
                     tool_defs = [
+                        ("✎ on", "tool_paint_toggle"),
                         (mode_lbl, "tool_paint_mode"),
                         ("▶ story", "tool_story"),
                         ("⇪ convert", "tool_convert"),
@@ -1060,11 +1068,12 @@ def render_prism_frame(
                     ]
                 if width >= 54:
                     tool_defs.append(("💬 chat", "tool_chat"))
-                if width >= 64:
+                if width >= 68:
                     tool_defs.append(("⧉ copy", "tool_copy"))
             else:
-                if width >= 44:
+                if width >= 62:
                     tool_defs = [
+                        ("* on", "tool_paint_toggle"),
                         ("* Live", "tool_mode_live"),
                         ("# Work", "tool_mode_work"),
                         ("> story", "tool_story"),
@@ -1074,6 +1083,7 @@ def render_prism_frame(
                 else:
                     mode_lbl = "# Work" if paint_mode == "work" else "* Live"
                     tool_defs = [
+                        ("* on", "tool_paint_toggle"),
                         (mode_lbl, "tool_paint_mode"),
                         ("> story", "tool_story"),
                         ("^ convert", "tool_convert"),
@@ -1081,10 +1091,10 @@ def render_prism_frame(
                     ]
                 if width >= 54:
                     tool_defs.append(("[?] chat", "tool_chat"))
-                if width >= 64:
+                if width >= 68:
                     tool_defs.append(("[c] copy", "tool_copy"))
 
-            sep = "   " if width >= 70 else "  "
+            sep = "   " if width >= 74 else "  "
             sep_w = len(sep)
             total_tools_w = sum(sum(_char_cells(c) for c in lbl) for lbl, _ in tool_defs) + sep_w * (len(tool_defs) - 1)
             tx0 = max(1, width - total_tools_w - 1)
@@ -1092,7 +1102,8 @@ def render_prism_frame(
             for lbl, act in tool_defs:
                 lbl_w = sum(_char_cells(c) for c in lbl)
                 is_active_tool = (
-                    (act == "tool_mode_live" and paint_mode == "live")
+                    act == "tool_paint_toggle"
+                    or (act == "tool_mode_live" and paint_mode == "live")
                     or (act == "tool_mode_work" and paint_mode == "work")
                     or (act == "tool_paint_mode" and paint_mode == "work")
                     or (act == "tool_story" and story_st and story_st.get("active"))
@@ -1213,6 +1224,23 @@ def render_prism_frame(
                     chat_scroll=int(ui.get("chat_scroll") or 0),
                     hitboxes=hitboxes,
                 )
+    elif ui_state is not None and width >= 26 and height >= 14:
+        # When painting is off, offer a top-right toggle (`✎ paint`) and `⧉ copy`
+        tool_defs_off = (
+            [("✎ paint", "tool_paint_toggle"), ("⧉ copy", "tool_copy")]
+            if unicode_mode
+            else [("* paint", "tool_paint_toggle"), ("[c] copy", "tool_copy")]
+        )
+        sep_off = "   " if width >= 48 else "  "
+        sep_w_off = len(sep_off)
+        total_w_off = sum(sum(_char_cells(c) for c in lbl) for lbl, _ in tool_defs_off) + sep_w_off * (len(tool_defs_off) - 1)
+        cur_tx = max(1, width - total_w_off - 1)
+        for lbl, act in tool_defs_off:
+            lbl_w = sum(_char_cells(c) for c in lbl)
+            grid.put_str(cur_tx, 0, lbl, C_CYAN if use_color else "")
+            if hitboxes is not None:
+                hitboxes.append({"y": 0, "x0": cur_tx, "x1": cur_tx + lbl_w, "action": act})
+            cur_tx += lbl_w + sep_w_off
 
     return grid.render()
 
@@ -1482,7 +1510,7 @@ def load_feed_state(feed_dir: Path, now: Optional[float] = None) -> dict:
                     elif typ == "turn.halt":
                         sem_mode = "halted"
                     else:
-                        sem_mode = "attending" if typ in ("turn.attend", "refract.resolve", "branch.resolve") else "idle"
+                        sem_mode = "attending" if typ in ("turn.attend", "refract.resolve", "refract.halt", "branch.resolve") else "idle"
 
                     if sem_mode == "idle":
                         hover_text = "Prism · ready"
@@ -1897,9 +1925,9 @@ def handle_paint(argv: List[str]) -> None:
     parsed = pp.parse_args(argv)
 
     words = [w.strip() for w in parsed.action if w.strip()]
-    if words and words[0].lower() in ("clear", "off", "none"):
-        mcp_server.clear_expression(clear_painting=True)
-        print("✓ Prism painting cleared.")
+    if words and words[0].lower() in ("clear", "off", "none", "disable"):
+        mcp_server.write_expression(thought="", paint_enabled=False, save_shared_json=False)
+        print("✓ Prism painting turned off.")
         return
 
     if words and words[0].lower() == "convert":
@@ -1916,6 +1944,7 @@ def handle_paint(argv: List[str]) -> None:
             thought="",
             mood=open_p.get("mood"),
             painting=open_p,
+            paint_enabled=True,
             paint_scope="session",
             session_start=now_reset,
             reset_session=True,
@@ -1937,6 +1966,7 @@ def handle_paint(argv: List[str]) -> None:
         latest_p = plist[-1] if plist else (cur_e.get("painting") or painter.generate_opening_painting())
         payload = mcp_server.write_expression(
             painting=latest_p,
+            paint_enabled=True,
             paint_scope=norm_sc,
             session_start=s_start,
             save_shared_json=False,
@@ -1966,7 +1996,7 @@ def handle_paint(argv: List[str]) -> None:
         preset_idx = None
         if words and words[0].isdigit():
             preset_idx = int(words[0])
-        elif words and words[0].lower() not in ("new", "living", "auto", "live", "work", "relative"):
+        elif words and words[0].lower() not in ("on", "enable", "start", "new", "living", "auto", "live", "work", "relative"):
             kw = " ".join(words).lower()
             for idx_c, c_p in enumerate(painter.CURATED_PAINTINGS):
                 if kw in c_p["title"].lower() or kw in c_p["mood"].lower():
@@ -1999,6 +2029,7 @@ def handle_paint(argv: List[str]) -> None:
         thought=parsed.thought or paint_obj.get("thought") or None,
         mood=parsed.mood or paint_obj.get("mood"),
         painting=paint_obj,
+        paint_enabled=True,
         paint_mode=effective_mode,
         paint_scope=parsed.paint_scope,
     )
@@ -2425,24 +2456,30 @@ def main():
                 same_session = True
 
         all_dir_paintings = painter.load_session_paintings(project_dir, session_start=0.0) if painter is not None else []
+        env_paint_on = (
+            str(os.environ.get("PRISM_PAINT") or "").lower().strip() in ("1", "on", "true", "yes")
+            or bool(args.story)
+        )
         default_painting = None
         if same_session and isinstance(expr_state, dict):
             session_start = prev_sess_start
-            scoped_existing = (
-                all_dir_paintings
-                if paint_scope == "dir"
-                else (
-                    painter.load_session_paintings(project_dir, session_start=session_start, strict_session=True)
-                    if painter is not None
-                    else []
+            paint_enabled = bool(expr_state.get("paintEnabled", False)) or env_paint_on
+            if paint_enabled:
+                scoped_existing = (
+                    all_dir_paintings
+                    if paint_scope == "dir"
+                    else (
+                        painter.load_session_paintings(project_dir, session_start=session_start, strict_session=True)
+                        if painter is not None
+                        else []
+                    )
                 )
-            )
-            if isinstance(expr_state.get("painting"), dict):
-                default_painting = expr_state["painting"]
-            elif scoped_existing:
-                default_painting = scoped_existing[-1]
-            elif all_dir_paintings:
-                default_painting = all_dir_paintings[-1]
+                if isinstance(expr_state.get("painting"), dict):
+                    default_painting = expr_state["painting"]
+                elif scoped_existing:
+                    default_painting = scoped_existing[-1]
+                elif all_dir_paintings:
+                    default_painting = all_dir_paintings[-1]
             if mcp_server is not None and not args.demo and not args.demo_state:
                 mcp_server.set_active_project(project_dir, session_id=cur_session_id, session_start=session_start)
                 try:
@@ -2450,17 +2487,11 @@ def main():
                 except Exception:
                     pass
         else:
-            # New session in this project directory
+            # New session in this project directory: painting is OFF by default until turned on
             session_start = env_sess_start if env_sess_start > 0.0 else t0
-            if painter is not None:
-                if (
-                    expr_state is None
-                    and len(all_dir_paintings) == 1
-                    and (t0 - float(all_dir_paintings[0].get("at") or 0.0)) < 7200.0
-                ):
-                    default_painting = all_dir_paintings[0]
-                    session_start = float(default_painting.get("at") or session_start)
-                elif paint_scope == "dir" and all_dir_paintings:
+            paint_enabled = env_paint_on
+            if paint_enabled and painter is not None:
+                if paint_scope == "dir" and all_dir_paintings:
                     default_painting = all_dir_paintings[-1]
                 else:
                     existing_sess = painter.load_session_paintings(
@@ -2483,6 +2514,7 @@ def main():
                     thought=(default_painting or {}).get("thought") or "",
                     mood=(default_painting or {}).get("mood") or "aurora",
                     painting=default_painting,
+                    paint_enabled=paint_enabled,
                     paint_scope=paint_scope,
                     session_start=session_start,
                     session_id=cur_session_id,
@@ -2499,11 +2531,10 @@ def main():
         except OSError:
             boot_mtime = 0.0
 
-        # Autonomous painting cadence tracking:
-        # - Paints only on Prism's reply completion (turn.resolve / resolved), never on user message arrival (attending)
-        # - Enforces a 120s appreciation gap between reply paintings
-        # - Spontaneous painting every 5 minutes (300s) only during continuous long work turns
-        # - Ambient painting every 15 minutes (900s) when idle
+        # Autonomous painting cadence tracking (only when painting is turned ON):
+        # - Off by default on startup; turning painting on immediately paints one piece
+        # - Paints once per message Prism sends (turn.resolve / resolved)
+        # - Paints once every 15 minutes (900s) ONLY during an active work turn
         seen_resolve_seq = 0
         if feed_dir and feed_dir.is_dir():
             seen_resolve_seq = int(load_feed_state(feed_dir).get("lastResolveSeq") or 0)
@@ -2526,6 +2557,7 @@ def main():
         initial_paint_mode = "work" if raw_init_pm in ("work", "relative", "story-mode") else "live"
         init_stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else None) or {}
         ui_state: Dict[str, Any] = {
+            "paint_enabled": paint_enabled,
             "story": None,
             "menu_step": 0,
             "convert_target": "this",
@@ -2697,9 +2729,57 @@ def main():
             t_worker.start()
 
         def _dispatch_action(action: str) -> None:
-            nonlocal story_page_started, story_paused_elapsed, expr_state, default_painting, last_auto_paint_wall
+            nonlocal story_page_started, story_paused_elapsed, expr_state, default_painting, last_auto_paint_wall, seen_resolve_seq
             st = ui_state.get("story")
-            if action in ("tool_paint_mode", "tool_mode_live", "tool_mode_work"):
+            if action == "tool_paint_toggle":
+                if ui_state.get("paint_enabled"):
+                    ui_state["paint_enabled"] = False
+                    ui_state["story"] = None
+                    ui_state["menu_step"] = 0
+                    ui_state["chat_active"] = False
+                    default_painting = None
+                    if mcp_server is not None:
+                        expr_state = mcp_server.write_expression(
+                            thought="",
+                            paint_enabled=False,
+                            paint_scope=str(ui_state.get("paint_scope") or "session"),
+                            session_start=session_start,
+                            session_id=cur_session_id,
+                            project_dir=project_dir,
+                            save_shared_json=False,
+                        )
+                else:
+                    ui_state["paint_enabled"] = True
+                    if painter is not None and mcp_server is not None:
+                        now_t = time.time()
+                        last_auto_paint_wall = now_t
+                        cur_st = load_feed_state(feed_dir) if (feed_dir and feed_dir.is_dir()) else {}
+                        seen_resolve_seq = max(seen_resolve_seq, int(cur_st.get("lastResolveSeq") or 0))
+                        cur_pm = str(ui_state.get("paint_mode") or "live")
+                        existing_s = painter.load_session_paintings(
+                            project_dir, session_start=session_start, strict_session=True
+                        )
+                        next_idx = len(existing_s) + 1
+                        new_p = painter.generate_living_painting(
+                            now=now_t,
+                            step_index=next_idx,
+                            mood_hint=cur_st.get("mood"),
+                            paint_mode=cur_pm,
+                            state_data=cur_st,
+                        )
+                        expr_state = mcp_server.write_expression(
+                            thought=new_p.get("thought"),
+                            mood=new_p.get("mood"),
+                            painting=new_p,
+                            paint_enabled=True,
+                            paint_mode=cur_pm,
+                            paint_scope=str(ui_state.get("paint_scope") or "session"),
+                            session_start=session_start,
+                            session_id=cur_session_id,
+                            project_dir=project_dir,
+                        )
+                        default_painting = expr_state.get("painting") or new_p
+            elif action in ("tool_paint_mode", "tool_mode_live", "tool_mode_work"):
                 cur_pm = str(ui_state.get("paint_mode") or "live")
                 if action == "tool_mode_live":
                     new_pm = "live"
@@ -2708,6 +2788,7 @@ def main():
                 else:
                     new_pm = "work" if cur_pm == "live" else "live"
                 ui_state["paint_mode"] = new_pm
+                ui_state["paint_enabled"] = True
                 if painter is not None and mcp_server is not None:
                     now_t = time.time()
                     last_auto_paint_wall = now_t
@@ -2725,6 +2806,7 @@ def main():
                         thought=new_p.get("thought"),
                         mood=new_p.get("mood"),
                         painting=new_p,
+                        paint_enabled=True,
                         paint_mode=new_pm,
                         paint_scope=str(ui_state.get("paint_scope") or "session"),
                         session_start=session_start,
@@ -2918,7 +3000,7 @@ def main():
                 return
 
             if isinstance(st, dict) and st.get("active"):
-                if " " in buf or "p" in buf:
+                if " " in buf:
                     if st.get("at_end"):
                         _dispatch_action("story_again")
                     elif st.get("paused"):
@@ -2936,15 +3018,17 @@ def main():
                     _dispatch_action("story_end")
                     return
 
-            if "/" in buf or "t" in buf or "\r" in buf or "\n" in buf:
+            if "p" in buf:
+                _dispatch_action("tool_paint_toggle")
+            elif ("/" in buf or "t" in buf or "\r" in buf or "\n" in buf) and ui_state.get("paint_enabled"):
                 _dispatch_action("chat_focus")
             elif "m" in buf:
                 _dispatch_action("tool_paint_mode")
-            elif "s" in buf:
+            elif "s" in buf and ui_state.get("paint_enabled"):
                 _dispatch_action("tool_story")
-            elif "c" in buf:
+            elif "c" in buf and ui_state.get("paint_enabled"):
                 _dispatch_action("tool_convert")
-            elif "r" in buf:
+            elif "r" in buf and ui_state.get("paint_enabled"):
                 _dispatch_action("tool_roll")
             elif "y" in buf:
                 _dispatch_action("tool_copy")
@@ -3010,6 +3094,8 @@ def main():
                     last_expr_check = t
                     expr_state = mcp_server.read_expression(project_dir=project_dir)
                     if isinstance(expr_state, dict):
+                        if "paintEnabled" in expr_state:
+                            ui_state["paint_enabled"] = bool(expr_state.get("paintEnabled"))
                         if isinstance(expr_state.get("chat"), list):
                             ui_state["chat_messages"] = expr_state["chat"]
                         raw_pm_expr = str(expr_state.get("paintMode") or "").lower().strip()
@@ -3021,28 +3107,32 @@ def main():
                         expr_s_start = float(expr_state.get("sessionStart") or 0.0)
                         if expr_s_start > 0.0 and abs(expr_s_start - session_start) > 0.5:
                             session_start = expr_s_start
-                    if painter is not None and (t - last_paint_dir_check >= 1.5):
-                        last_paint_dir_check = t
-                        all_dir_latest = painter.load_session_paintings(project_dir, session_start=0.0)
-                        latest_shared = _load_scoped_paintings()
-                        ui_state["session_count"] = max(1, len(latest_shared))
-                        ui_state["dir_count"] = max(ui_state["session_count"], len(all_dir_latest))
-                        if latest_shared:
-                            default_painting = latest_shared[-1]
-                    if default_painting is not None:
-                        if not isinstance(expr_state, dict):
-                            expr_state = {
-                                "v": 1,
-                                "painting": default_painting,
-                                "paintStats": {
-                                    "paintings": ui_state.get("session_count", 1),
-                                    "tokens": 2100,
-                                    "dirPaintings": ui_state.get("dir_count", 1),
-                                    "scope": ui_state.get("paint_scope", "session"),
-                                },
-                            }
-                        elif not expr_state.get("painting"):
-                            expr_state = dict(expr_state, painting=default_painting)
+                    if ui_state.get("paint_enabled"):
+                        if painter is not None and (t - last_paint_dir_check >= 1.5):
+                            last_paint_dir_check = t
+                            all_dir_latest = painter.load_session_paintings(project_dir, session_start=0.0)
+                            latest_shared = _load_scoped_paintings()
+                            ui_state["session_count"] = max(1, len(latest_shared))
+                            ui_state["dir_count"] = max(ui_state["session_count"], len(all_dir_latest))
+                            if latest_shared:
+                                default_painting = latest_shared[-1]
+                        if default_painting is not None:
+                            if not isinstance(expr_state, dict):
+                                expr_state = {
+                                    "v": 1,
+                                    "paintEnabled": True,
+                                    "painting": default_painting,
+                                    "paintStats": {
+                                        "paintings": ui_state.get("session_count", 1),
+                                        "tokens": 2100,
+                                        "dirPaintings": ui_state.get("dir_count", 1),
+                                        "scope": ui_state.get("paint_scope", "session"),
+                                    },
+                                }
+                            elif not expr_state.get("painting"):
+                                expr_state = dict(expr_state, painting=default_painting)
+                    else:
+                        default_painting = None
 
                 if feed_dir and feed_dir.is_dir():
                     state = load_feed_state(feed_dir)
@@ -3051,14 +3141,14 @@ def main():
                 else:
                     state = get_demo_state(t, forced_state="idle")
 
-                # Autonomous painting trigger check:
-                # 1. Only on Prism's reply completion (turn.resolve / resolved), NEVER on user message arrival (attending)
-                # 2. Enforce a 120s appreciation gap between reply paintings so each piece has room to breathe
-                # 3. Spontaneous painting every 5 minutes (300s) only if a single active work turn runs continuously >= 300s
-                # 4. Ambient painting every 15 minutes (900s) when idle/quiet
+                # Autonomous painting trigger check (only active when painting is turned ON):
+                # 1. One painting per message Prism sends (turn.resolve / resolved), never on user message arrival (attending)
+                # 2. One painting every 15 minutes (900s) ONLY during an active work turn (attending, refracting, branching, approval)
+                # 3. Never paint while painting is turned OFF, and never paint on an idle timer outside an active turn
                 if painter is not None and mcp_server is not None and not args.demo and not args.demo_state:
                     cur_mode = str(state.get("mode") or "idle")
-                    if cur_mode in ("attending", "refracting", "branching", "approval"):
+                    is_active_turn = cur_mode in ("attending", "refracting", "branching", "approval")
+                    if is_active_turn:
                         if active_turn_started_wall is None:
                             active_turn_started_wall = now_wall
                         for k_sp, v_sp in (state.get("spectrum") or {}).items():
@@ -3068,64 +3158,69 @@ def main():
                         turn_spectrum_acc.clear()
 
                     cur_resolve_seq = int(state.get("lastResolveSeq") or 0)
-                    cur_p = expr_state.get("painting") if isinstance(expr_state, dict) else None
-                    p_ts = float(cur_p.get("at") or cur_p.get("startedAt") or 0.0) if isinstance(cur_p, dict) else 0.0
-                    def_ts = float(default_painting.get("at") or 0.0) if isinstance(default_painting, dict) else 0.0
-                    last_paint_at = max(last_auto_paint_wall, p_ts, def_ts)
-                    time_since_paint = max(0.0, now_wall - last_paint_at)
-                    active_turn_elapsed = (
-                        max(0.0, now_wall - active_turn_started_wall)
-                        if active_turn_started_wall is not None
-                        else 0.0
-                    )
-                    should_auto_paint = False
+                    if not ui_state.get("paint_enabled"):
+                        if cur_resolve_seq > seen_resolve_seq:
+                            seen_resolve_seq = cur_resolve_seq
+                            active_turn_started_wall = None
+                            turn_spectrum_acc.clear()
+                    else:
+                        cur_p = expr_state.get("painting") if isinstance(expr_state, dict) else None
+                        p_ts = float(cur_p.get("at") or cur_p.get("startedAt") or 0.0) if isinstance(cur_p, dict) else 0.0
+                        def_ts = float(default_painting.get("at") or 0.0) if isinstance(default_painting, dict) else 0.0
+                        last_paint_at = max(last_auto_paint_wall, p_ts, def_ts)
+                        time_since_paint = max(0.0, now_wall - last_paint_at)
+                        active_turn_elapsed = (
+                            max(0.0, now_wall - active_turn_started_wall)
+                            if active_turn_started_wall is not None
+                            else 0.0
+                        )
+                        should_auto_paint = False
 
-                    if cur_resolve_seq > seen_resolve_seq:
-                        seen_resolve_seq = cur_resolve_seq
-                        active_turn_started_wall = None
-                        if cur_mode == "resolved" and time_since_paint >= 120.0:
+                        if cur_resolve_seq > seen_resolve_seq:
+                            seen_resolve_seq = cur_resolve_seq
+                            active_turn_started_wall = None
+                            if cur_mode == "resolved" and time_since_paint >= 2.0:
+                                should_auto_paint = True
+                        elif (
+                            is_active_turn
+                            and active_turn_elapsed >= 900.0
+                            and time_since_paint >= 900.0
+                        ):
                             should_auto_paint = True
-                    elif time_since_paint >= 900.0 and cur_mode not in ("attending", "refracting", "branching", "approval"):
-                        should_auto_paint = True
-                    elif (
-                        cur_mode in ("refracting", "branching")
-                        and active_turn_elapsed >= 300.0
-                        and time_since_paint >= 300.0
-                    ):
-                        should_auto_paint = True
 
-                    if should_auto_paint:
-                        last_auto_paint_wall = now_wall
-                        stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else {}) or {}
-                        next_idx = int(stats.get("paintings", 0)) + 1
-                        cur_pm = str(ui_state.get("paint_mode") or (expr_state or {}).get("paintMode") or "live")
-                        paint_state = dict(state)
-                        if turn_spectrum_acc:
-                            merged_sp = dict(paint_state.get("spectrum") or {})
-                            for k_sp, v_sp in turn_spectrum_acc.items():
-                                merged_sp[k_sp] = max(merged_sp.get(k_sp, 0), v_sp)
-                            paint_state["spectrum"] = merged_sp
-                        new_p = painter.generate_living_painting(
-                            now=now_wall,
-                            step_index=next_idx,
-                            mood_hint=state.get("mood"),
-                            paint_mode=cur_pm,
-                            state_data=paint_state,
-                        )
-                        expr_state = mcp_server.write_expression(
-                            thought=new_p.get("thought"),
-                            mood=new_p.get("mood"),
-                            painting=new_p,
-                            paint_mode=cur_pm,
-                            paint_scope=str(ui_state.get("paint_scope") or "session"),
-                            session_start=session_start,
-                            session_id=cur_session_id,
-                            project_dir=project_dir,
-                        )
-                        default_painting = expr_state.get("painting") or new_p
-                        if ui_state.get("story") and ui_state["story"].get("active"):
-                            story_paintings = _load_scoped_paintings() or [default_painting]
-                            ui_state["story"]["total"] = len(story_paintings)
+                        if should_auto_paint:
+                            last_auto_paint_wall = now_wall
+                            stats = (expr_state.get("paintStats") if isinstance(expr_state, dict) else {}) or {}
+                            next_idx = int(stats.get("paintings", 0)) + 1
+                            cur_pm = str(ui_state.get("paint_mode") or (expr_state or {}).get("paintMode") or "live")
+                            paint_state = dict(state)
+                            if turn_spectrum_acc:
+                                merged_sp = dict(paint_state.get("spectrum") or {})
+                                for k_sp, v_sp in turn_spectrum_acc.items():
+                                    merged_sp[k_sp] = max(merged_sp.get(k_sp, 0), v_sp)
+                                paint_state["spectrum"] = merged_sp
+                            new_p = painter.generate_living_painting(
+                                now=now_wall,
+                                step_index=next_idx,
+                                mood_hint=state.get("mood"),
+                                paint_mode=cur_pm,
+                                state_data=paint_state,
+                            )
+                            expr_state = mcp_server.write_expression(
+                                thought=new_p.get("thought"),
+                                mood=new_p.get("mood"),
+                                painting=new_p,
+                                paint_enabled=True,
+                                paint_mode=cur_pm,
+                                paint_scope=str(ui_state.get("paint_scope") or "session"),
+                                session_start=session_start,
+                                session_id=cur_session_id,
+                                project_dir=project_dir,
+                            )
+                            default_painting = expr_state.get("painting") or new_p
+                            if ui_state.get("story") and ui_state["story"].get("active"):
+                                story_paintings = _load_scoped_paintings() or [default_painting]
+                                ui_state["story"]["total"] = len(story_paintings)
 
                     if cur_mode == "resolved":
                         turn_spectrum_acc.clear()
